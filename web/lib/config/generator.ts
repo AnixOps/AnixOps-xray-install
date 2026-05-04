@@ -1,4 +1,17 @@
 // VLESS Reality config generators (TCP transport + xtls-rprx-vision flow)
+export function encodeBase64Text(value: string) {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "utf-8").toString("base64");
+  }
+
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
 export function generateVlessRealityConfig(params: {
   ip: string;
   port: number;
@@ -69,7 +82,7 @@ export function generateVlessRealitySubscription(params: {
   shortId: string;
 }) {
   const single = generateVlessRealityConfig(params).v2rayN;
-  return Buffer.from(`${single}\n`, "utf-8").toString("base64");
+  return encodeBase64Text(`${single}\n`);
 }
 
 // Hysteria2 config generators
@@ -134,5 +147,5 @@ export function generateHysteria2Subscription(params: {
   insecure?: boolean;
 }) {
   const single = generateHysteria2Config(params).v2rayN;
-  return Buffer.from(`${single}\n`, "utf-8").toString("base64");
+  return encodeBase64Text(`${single}\n`);
 }

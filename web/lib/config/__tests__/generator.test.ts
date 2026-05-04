@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { generateVlessRealityConfig, generateHysteria2Config } from "../generator";
+import {
+  encodeBase64Text,
+  generateVlessRealityConfig,
+  generateHysteria2Config,
+  generateVlessRealitySubscription,
+} from "../generator";
 
 describe("VLESS Reality config generator", () => {
   it("generates Clash Meta config with TCP transport", () => {
@@ -243,5 +248,23 @@ describe("config generator edge cases", () => {
       ip: "1.2.3.4", port: 443, password: "p", insecure: true,
     });
     expect(Object.keys(hy2)).toEqual(["clashMeta", "singbox", "v2rayN", "shadowrocket"]);
+  });
+
+  it("encodes single-link subscriptions as base64 text", () => {
+    const subscription = generateVlessRealitySubscription({
+      ip: "1.2.3.4",
+      port: 443,
+      uuid: "uuid",
+      serverName: "addons.mozilla.org",
+      publicKey: "pubkey",
+      shortId: "abcd",
+    });
+
+    expect(Buffer.from(subscription, "base64").toString("utf-8")).toContain("vless://");
+  });
+
+  it("encodes arbitrary utf-8 text to base64", () => {
+    const encoded = encodeBase64Text("hello\n");
+    expect(Buffer.from(encoded, "base64").toString("utf-8")).toBe("hello\n");
   });
 });

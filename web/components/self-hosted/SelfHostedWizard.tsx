@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDeployStore } from "@/lib/deploy/store";
 import { useAuthStore } from "@/lib/auth/store";
 import { PROVIDER_INFO, PROTOCOL_INFO } from "@/lib/deploy/types";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { Button, Input, Label, Card } from "@/components/ui";
+import { encodeBase64Text, generateHysteria2Config, generateVlessRealityConfig } from "@/lib/config/generator";
 
 export function SelfHostedWizard() {
   const step = useDeployStore((s) => s.step);
@@ -20,6 +21,9 @@ export function SelfHostedWizard() {
   const serverIp = useDeployStore((s) => s.serverIp);
   const sshPort = useDeployStore((s) => s.sshPort);
   const sshPassword = useDeployStore((s) => s.sshPassword);
+  const cleanupMode = useDeployStore((s) => s.cleanupMode);
+  const cleanupHours = useDeployStore((s) => s.cleanupHours);
+  const cleanupAtInput = useDeployStore((s) => s.cleanupAtInput);
   const status = useDeployStore((s) => s.status);
   const steps = useDeployStore((s) => s.steps);
   const config = useDeployStore((s) => s.config);
@@ -39,12 +43,57 @@ export function SelfHostedWizard() {
   const setServerIp = useDeployStore((s) => s.setServerIp);
   const setSshPort = useDeployStore((s) => s.setSshPort);
   const setSshPassword = useDeployStore((s) => s.setSshPassword);
+  const setCleanupMode = useDeployStore((s) => s.setCleanupMode);
+  const setCleanupHours = useDeployStore((s) => s.setCleanupHours);
+  const setCleanupAtInput = useDeployStore((s) => s.setCleanupAtInput);
   const setStatus = useDeployStore((s) => s.setStatus);
   const updateStep = useDeployStore((s) => s.updateStep);
   const setConfig = useDeployStore((s) => s.setConfig);
   const setError = useDeployStore((s) => s.setError);
   const reset = useDeployStore((s) => s.reset);
-  const { t } = useLocaleStore();
+  const { t, locale } = useLocaleStore();
+  const localText = {
+    cleanupTitle: locale === "zh" ? "自动清理" : "Auto cleanup",
+    cleanupModeDuration: locale === "zh" ? "按时长" : "After duration",
+    cleanupModeDatetime: locale === "zh" ? "指定时间" : "At exact time",
+    cleanupHours: locale === "zh" ? "保留小时数" : "Keep alive hours",
+    cleanupHoursHint: locale === "zh" ? "支持小数，例如 0.5 表示 30 分钟" : "Decimal values are allowed. Example: 0.5 means 30 minutes.",
+    cleanupDatetime: locale === "zh" ? "清理时间" : "Cleanup time",
+    cleanupDatetimeHint: locale === "zh" ? "到期后将停止服务并清理 Xray/Hysteria 痕迹" : "When reached, the server timer stops services and wipes Xray/Hysteria traces.",
+    cleanupReview: locale === "zh" ? "自动清理" : "Auto cleanup",
+    shareTitle: locale === "zh" ? "节点链接" : "Node link",
+    copyRaw: locale === "zh" ? "复制原始链接" : "Copy raw link",
+    copyBase64: locale === "zh" ? "复制 Base64" : "Copy Base64",
+  };
+  const generatedShareLink = useMemo(() => {
+    if (!config?.protocol || !config.ip || !config.port) {
+      return null;
+    }
+
+    if (config.protocol === "vless-reality" && config.uuid && config.serverName && config.publicKey && config.shortId) {
+      return generateVlessRealityConfig({
+        ip: config.ip,
+        port: Number(config.port),
+        uuid: config.uuid,
+        serverName: config.serverName,
+        publicKey: config.publicKey,
+        shortId: config.shortId,
+      }).v2rayN;
+    }
+
+    if (config.protocol === "hysteria2" && config.password) {
+      return generateHysteria2Config({
+        ip: config.ip,
+        port: Number(config.port),
+        password: config.password,
+        obfs: config.obfs,
+        insecure: config.insecure !== "false",
+      }).v2rayN;
+    }
+
+    return null;
+  }, [config]);
+  const encodedShareLink = generatedShareLink ? encodeBase64Text(generatedShareLink) : null;
 
   if (status === "running") {
     return (
@@ -122,6 +171,29 @@ export function SelfHostedWizard() {
             </div>
           ))}
         </div>
+        {generatedShareLink && (
+          <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+            <div className="text-sm font-medium">{localText.shareTitle}</div>
+            <div className="break-all font-mono text-xs">{generatedShareLink}</div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => navigator.clipboard?.writeText(generatedShareLink)}
+              >
+                {localText.copyRaw}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => encodedShareLink && navigator.clipboard?.writeText(encodedShareLink)}
+              >
+                {localText.copyBase64}
+              </Button>
+            </div>
+            {encodedShareLink && (
+              <div className="break-all font-mono text-xs text-muted-foreground">{encodedShareLink}</div>
+            )}
+          </div>
+        )}
         <div className="flex justify-end">
           <Button variant="outline" onClick={reset}>{t("common.back")}</Button>
         </div>
@@ -268,7 +340,10 @@ export function SelfHostedWizard() {
   // Step 2: Domain & Protocol
   if (step === 2) {
     // VLESS Reality doesn't need a domain
-    const canProceed = (protocol === "vless-reality" || domain) && protocol;
+    const hasCleanupValue = cleanupMode === "duration"
+      ? cleanupHours.trim().length > 0
+      : cleanupAtInput.trim().length > 0;
+    const canProceed = (protocol === "vless-reality" || domain) && protocol && hasCleanupValue;
     return (
       <Card className="p-6 space-y-6">
         <h2 className="text-lg font-semibold">{t("selfhosted.step2.title")}</h2>
@@ -302,6 +377,53 @@ export function SelfHostedWizard() {
           </div>
         </div>
 
+        <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+          <Label>{localText.cleanupTitle}</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setCleanupMode("duration")}
+              className={`rounded-lg border px-3 py-2 text-sm transition-all ${
+                cleanupMode === "duration" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/50"
+              }`}
+            >
+              {localText.cleanupModeDuration}
+            </button>
+            <button
+              onClick={() => setCleanupMode("datetime")}
+              className={`rounded-lg border px-3 py-2 text-sm transition-all ${
+                cleanupMode === "datetime" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/50"
+              }`}
+            >
+              {localText.cleanupModeDatetime}
+            </button>
+          </div>
+          {cleanupMode === "duration" ? (
+            <div>
+              <Label>{localText.cleanupHours}</Label>
+              <Input
+                type="number"
+                min="0.1"
+                step="0.5"
+                value={cleanupHours}
+                onChange={(e) => setCleanupHours(e.target.value)}
+                className="mt-1"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{localText.cleanupHoursHint}</p>
+            </div>
+          ) : (
+            <div>
+              <Label>{localText.cleanupDatetime}</Label>
+              <Input
+                type="datetime-local"
+                value={cleanupAtInput}
+                onChange={(e) => setCleanupAtInput(e.target.value)}
+                className="mt-1"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{localText.cleanupDatetimeHint}</p>
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-between">
           <Button variant="outline" onClick={() => setStep(1)}>{t("common.back")}</Button>
           <Button disabled={!canProceed} onClick={() => setStep(3)}>{t("common.next")}</Button>
@@ -316,6 +438,9 @@ export function SelfHostedWizard() {
     const providerInfo = isApi && provider ? PROVIDER_INFO[provider] : null;
     const regionName = providerInfo ? t(providerInfo.regions.find((r) => r.id === region)?.nameKey || "") : "";
     const planInfo = providerInfo?.plans.find((p) => p.id === plan);
+    const cleanupSummary = cleanupMode === "duration"
+      ? `${cleanupHours || "24"}h`
+      : (cleanupAtInput || "-");
 
     const handleDeploy = async () => {
       if (!token) {
@@ -333,6 +458,9 @@ export function SelfHostedWizard() {
           protocol,
           domain,
           dnsToken,
+          ...(cleanupMode === "duration"
+            ? { cleanupHours: cleanupHours ? Number(cleanupHours) : undefined }
+            : { cleanupAt: cleanupAtInput ? new Date(cleanupAtInput).toISOString() : undefined }),
         };
         if (isApi) {
           Object.assign(body, { provider, apiKey, region, plan });
@@ -425,6 +553,7 @@ export function SelfHostedWizard() {
             </>
           )}
           <div className="flex justify-between"><span className="text-muted-foreground">{t("selfhosted.review.protocol")}</span><span>{protocol ? t(`protocol.${protocol}`) : ""}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">{localText.cleanupReview}</span><span>{cleanupSummary}</span></div>
         </div>
 
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">

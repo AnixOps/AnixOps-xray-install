@@ -23,6 +23,9 @@ interface DeployState {
   serverIp: string;
   sshPort: number;
   sshPassword: string;
+  cleanupMode: "duration" | "datetime";
+  cleanupHours: string;
+  cleanupAtInput: string;
   // Shared
   dnsToken: string;
   domain: string;
@@ -49,6 +52,9 @@ interface DeployState {
   setServerIp: (ip: string) => void;
   setSshPort: (port: number) => void;
   setSshPassword: (password: string) => void;
+  setCleanupMode: (mode: "duration" | "datetime") => void;
+  setCleanupHours: (hours: string) => void;
+  setCleanupAtInput: (value: string) => void;
   setDnsToken: (token: string) => void;
   setDomain: (domain: string) => void;
   setProtocol: (proto: Protocol) => void;
@@ -81,6 +87,9 @@ export const useDeployStore = create<DeployState>((set) => ({
   serverIp: "",
   sshPort: 22,
   sshPassword: "",
+  cleanupMode: "duration",
+  cleanupHours: "24",
+  cleanupAtInput: "",
   dnsToken: "",
   domain: "",
   protocol: null,
@@ -104,6 +113,9 @@ export const useDeployStore = create<DeployState>((set) => ({
   setServerIp: (serverIp) => set({ serverIp }),
   setSshPort: (sshPort) => set({ sshPort }),
   setSshPassword: (sshPassword) => set({ sshPassword }),
+  setCleanupMode: (cleanupMode) => set({ cleanupMode }),
+  setCleanupHours: (cleanupHours) => set({ cleanupHours }),
+  setCleanupAtInput: (cleanupAtInput) => set({ cleanupAtInput }),
   setDnsToken: (dnsToken) => set({ dnsToken }),
   setDomain: (domain) => set({ domain }),
   setProtocol: (protocol) => set({ protocol }),
@@ -141,6 +153,9 @@ export const useDeployStore = create<DeployState>((set) => ({
       serverIp: "",
       sshPort: 22,
       sshPassword: "",
+      cleanupMode: "duration",
+      cleanupHours: "24",
+      cleanupAtInput: "",
       dnsToken: "",
       domain: "",
       protocol: null,

@@ -16,6 +16,9 @@ describe("deploy store", () => {
     expect(state.serverIp).toBe("");
     expect(state.sshPort).toBe(22);
     expect(state.sshPassword).toBe("");
+    expect(state.cleanupMode).toBe("duration");
+    expect(state.cleanupHours).toBe("24");
+    expect(state.cleanupAtInput).toBe("");
   });
 
   it("resets to default state", () => {
@@ -26,6 +29,8 @@ describe("deploy store", () => {
     store.setDeployMethod("ssh");
     store.setServerIp("1.2.3.4");
     store.setSshPassword("test123");
+    store.setCleanupMode("datetime");
+    store.setCleanupAtInput("2026-05-05T12:00");
     expect(useDeployStore.getState().provider).toBe("vultr");
     expect(useDeployStore.getState().deployMethod).toBe("ssh");
 
@@ -37,6 +42,9 @@ describe("deploy store", () => {
     expect(resetState.step).toBe(1);
     expect(resetState.serverIp).toBe("");
     expect(resetState.sshPassword).toBe("");
+    expect(resetState.cleanupMode).toBe("duration");
+    expect(resetState.cleanupHours).toBe("24");
+    expect(resetState.cleanupAtInput).toBe("");
   });
 
   it("updates step status and timestamps", () => {

@@ -4,6 +4,7 @@ import { deployments, cleanupDeployments, type DeploymentLogEntry } from "@/lib/
 import { generateKeyPairSync, randomUUID, randomBytes, type KeyObject } from "crypto";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
+import { resolveSelfHostedCleanupAt } from "@/lib/deploy/schedule";
 
 // Structured logger for self-hosted deploy API
 function deployLog(level: "info" | "warn" | "error", deployId: string, message: string) {
@@ -52,13 +53,21 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { deployMethod, protocol, domain, dnsToken } = body;
+    const { deployMethod, protocol, domain, dnsToken, cleanupAt, cleanupHours } = body;
 
     if (!deployMethod || !protocol) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
+    }
+
+    let resolvedCleanupAt: string;
+    try {
+      resolvedCleanupAt = resolveSelfHostedCleanupAt({ cleanupAt, cleanupHours });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid cleanup schedule";
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     // Validate based on deploy method
@@ -96,11 +105,15 @@ export async function POST(request: Request) {
     });
 
     // Start deployment asynchronously
-    deployAsync(deployId, body);
+    deployAsync(deployId, {
+      ...body,
+      cleanupAt: resolvedCleanupAt,
+    });
 
     return NextResponse.json({
       deployId,
       status: "started",
+      cleanupAt: resolvedCleanupAt,
       message: "Deployment started. Poll /api/self-hosted/[id] for progress.",
     });
   } catch (error) {
@@ -139,6 +152,7 @@ async function deployAsync(
     protocol: string;
     domain?: string;
     dnsToken?: string;
+    cleanupAt?: string;
   };
 
   try {
@@ -177,7 +191,7 @@ async function deployAsync(
       }
 
       // Step 4: Install automatic local cleanup timer on user-owned server
-      const cleanupAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const cleanupAt = (config as { cleanupAt?: string }).cleanupAt || resolveSelfHostedCleanupAt({});
       deployLog("info", deployId, `Scheduling local cleanup for ${cleanupAt}...`);
       const cleanupMeta = await installCleanupTimerWithPassword(ip, sshPort, sshPassword, deployId, cleanupAt);
       deployLog("info", deployId, "Local cleanup timer installed");
@@ -239,12 +253,23 @@ async function deployAsync(
     deployLog("info", deployId, "Protocol deployed");
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 90 });
 
+    const cleanupAt = (config as { cleanupAt?: string }).cleanupAt || resolveSelfHostedCleanupAt({});
+    deployLog("info", deployId, `Scheduling local cleanup for ${cleanupAt}...`);
+    const cleanupMeta = await installCleanupTimer(ip, deployId, cleanupAt);
+    deployLog("info", deployId, "Local cleanup timer installed");
+
     // Step 4: Complete (90-100%)
     deployments.set(deployId, {
       ...deployments.get(deployId)!,
       status: "success",
       progress: 100,
-      config: result,
+      config: {
+        ...result,
+        cleanupAt,
+        cleanupMode: "local-timer",
+        cleanupServiceName: cleanupMeta.serviceName,
+        cleanupTimerName: cleanupMeta.timerName,
+      },
     });
 
     deployLog("info", deployId, "Deployment complete!");
@@ -829,6 +854,64 @@ async function installCleanupTimerWithPassword(
 ): Promise<{ serviceName: string; timerName: string }> {
   const ssh = new NodeSSH();
   await ssh.connect({ host: ip, port, username: "root", password: sshPassword });
+
+  const serviceName = `anixops-cleanup-${deployId}.service`;
+  const timerName = `anixops-cleanup-${deployId}.timer`;
+  const scriptPath = process.cwd() + "/scripts/destroy.sh";
+  const { readFileSync } = await import("fs");
+  const cleanupScript = readFileSync(scriptPath, "utf-8");
+  const cleanupCalendar = cleanupAt
+    .replace("T", " ")
+    .replace(/\.\d{3}Z$/, " UTC")
+    .replace(/Z$/, " UTC");
+
+  try {
+    await ssh.execCommand("mkdir -p /usr/local/lib/anixops /var/lib/anixops");
+    await ssh.execCommand(`cat > /usr/local/lib/anixops/cleanup-${deployId}.sh << 'SCRIPT'\n${cleanupScript}\nSCRIPT`);
+    await ssh.execCommand(`chmod +x /usr/local/lib/anixops/cleanup-${deployId}.sh`);
+    await ssh.execCommand(
+      `cat > /etc/systemd/system/${serviceName} << 'EOF'
+[Unit]
+Description=AnixOps cleanup ${deployId}
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/lib/anixops/cleanup-${deployId}.sh
+ExecStartPost=/bin/sh -c 'printf "{\\"deployId\\":\\"${deployId}\\",\\"cleanupAt\\":\\"${cleanupAt}\\",\\"cleanedAt\\":\\"$(date -Is)\\"}\\n" > /var/lib/anixops/cleanup-${deployId}.json'
+EOF`
+    );
+    await ssh.execCommand(
+      `cat > /etc/systemd/system/${timerName} << 'EOF'
+[Unit]
+Description=AnixOps cleanup timer ${deployId}
+
+[Timer]
+OnCalendar=${cleanupCalendar}
+Persistent=true
+Unit=${serviceName}
+
+[Install]
+WantedBy=timers.target
+EOF`
+    );
+    await ssh.execCommand("systemctl daemon-reload");
+    await ssh.execCommand(`systemctl enable ${timerName}`);
+    await ssh.execCommand(`systemctl restart ${timerName}`);
+  } finally {
+    ssh.dispose();
+  }
+
+  return { serviceName, timerName };
+}
+
+async function installCleanupTimer(
+  ip: string,
+  deployId: string,
+  cleanupAt: string
+): Promise<{ serviceName: string; timerName: string }> {
+  const { privateKey } = getOrCreateSSHKey();
+  const ssh = new NodeSSH();
+  await ssh.connect({ host: ip, username: "root", privateKey });
 
   const serviceName = `anixops-cleanup-${deployId}.service`;
   const timerName = `anixops-cleanup-${deployId}.timer`;
