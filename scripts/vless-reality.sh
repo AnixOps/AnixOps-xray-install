@@ -124,8 +124,8 @@ generate_reality_keys() {
   log_info "Generating Reality x25519 keys..."
   local keypair
   keypair=$(xray x25519)
-  REALITY_PRIVATE_KEY=$(echo "$keypair" | grep "Private key:" | sed 's/.*Private key:[[:space:]]*//')
-  REALITY_PUBLIC_KEY=$(echo "$keypair" | grep "Public key:" | sed 's/.*Public key:[[:space:]]*//')
+  REALITY_PRIVATE_KEY=$(echo "$keypair" | grep -E "Private key:|PrivateKey:" | sed -E 's/.*(Private key:|PrivateKey:)[[:space:]]*//')
+  REALITY_PUBLIC_KEY=$(echo "$keypair" | grep -E "Public key:|Password \\(PublicKey\\):" | sed -E 's/.*(Public key:|Password \\(PublicKey\\):)[[:space:]]*//')
 }
 
 # Generate config
