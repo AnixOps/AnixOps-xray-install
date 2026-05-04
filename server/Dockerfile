@@ -3,11 +3,13 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY server/package.json server/package-lock.json* ./
 RUN npm ci
 
 # Copy source
-COPY . .
+COPY server/tsconfig.json ./
+COPY server/src ./src
+COPY versions.json /versions.json
 
 # Build TypeScript
 RUN npm run build
@@ -21,11 +23,12 @@ WORKDIR /app
 RUN apk add --no-cache wget
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY server/package.json server/package-lock.json* ./
 RUN npm ci --only=production
 
 # Copy built files
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /versions.json /versions.json
 
 EXPOSE 8787
 
