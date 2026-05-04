@@ -68,6 +68,8 @@ docker-data/
 
 # local machine / remote access secrets
 ssh.txt
+mail.txt
+_tmp_selfhosted_payload.json
 
 # terraform
 *.tfstate
