@@ -10,6 +10,8 @@ import { addProvisionJob, createProvisionWorker } from "./lib/queue.js";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import nodemailer from "nodemailer";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 
 const VALID_RENTAL_DURATIONS = [1, 6, 12, 24] as const;
 const PRICING = {
@@ -51,6 +53,7 @@ const env = envSchema.parse(process.env);
 
 // Stripe setup
 const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: "2025-02-24.acacia" }) : null;
+const versions = JSON.parse(readFileSync(resolve(process.cwd(), "../versions.json"), "utf-8")) as { frontend: string; backend: string };
 const mailer = env.SMTP_HOST && env.SMTP_PORT && env.SMTP_USER && env.SMTP_PASS
   ? nodemailer.createTransport({
       host: env.SMTP_HOST,
@@ -148,9 +151,9 @@ app.get("/health", async (c) => {
   if (!env.PROVISION_SERVER_URL) missing.push("PROVISION_SERVER_URL");
 
   if (missing.length > 0) {
-    return c.json({ status: "degraded", missing }, 503);
+    return c.json({ status: "degraded", missing, version: versions.backend }, 503);
   }
-  return c.json({ status: "ok", timestamp: new Date().toISOString() });
+  return c.json({ status: "ok", version: versions.backend, timestamp: new Date().toISOString() });
 });
 
 // ============================================================

@@ -10,6 +10,7 @@ import { SelfHostedWizard } from "@/components/self-hosted/SelfHostedWizard";
 import { RentalWizard } from "@/components/rental/RentalWizard";
 import { RentalDashboard } from "@/components/rental/RentalDashboard";
 import { Button, Card, Badge } from "@/components/ui";
+import versions from "@/../versions.json";
 
 export default function Home() {
   const mode = useDeployStore((s) => s.mode);
@@ -236,6 +237,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           <a href="#kb" className="text-primary hover:underline">{t("footer.kb")}</a>
           {" "}·{" "}
           <a href="#ai-agent" className="text-primary hover:underline">{t("footer.ai")} →</a>
+          <div className="mt-2 text-xs text-muted-foreground/80">FE v{versions.frontend}</div>
         </div>
       </footer>
     </main>
