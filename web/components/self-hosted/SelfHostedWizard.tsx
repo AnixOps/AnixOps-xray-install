@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useDeployStore } from "@/lib/deploy/store";
+import { useAuthStore } from "@/lib/auth/store";
 import { PROVIDER_INFO, PROTOCOL_INFO } from "@/lib/deploy/types";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { Button, Input, Label, Card } from "@/components/ui";
@@ -24,6 +25,7 @@ export function SelfHostedWizard() {
   const config = useDeployStore((s) => s.config);
   const error = useDeployStore((s) => s.error);
   const [deployLogs, setDeployLogs] = useState<Array<{ ts: string; level: string; message: string }>>([]);
+  const token = useAuthStore((s) => s.token);
 
   const setStep = useDeployStore((s) => s.setStep);
   const setDeployMethod = useDeployStore((s) => s.setDeployMethod);
@@ -316,6 +318,12 @@ export function SelfHostedWizard() {
     const planInfo = providerInfo?.plans.find((p) => p.id === plan);
 
     const handleDeploy = async () => {
+      if (!token) {
+        setError("Unauthorized");
+        setStatus("failed");
+        return;
+      }
+
       setStatus("running");
       try {
         updateStep({ stepId: "provision", status: "running", message: t("selfhosted.step.provision") });
@@ -335,7 +343,10 @@ export function SelfHostedWizard() {
         // Call the real self-hosted deploy API
         const response = await fetch("/api/self-hosted", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
           body: JSON.stringify(body),
         });
 
@@ -355,9 +366,15 @@ export function SelfHostedWizard() {
           await new Promise((r) => setTimeout(r, 5000));
           attempts++;
 
-          const statusRes = await fetch(`/api/self-hosted/${deployId}`);
+          const statusRes = await fetch(`/api/self-hosted/${deployId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           const statusData = await statusRes.json();
           setDeployLogs(statusData.logs || []);
+
+          if (!statusRes.ok) {
+            throw new Error(statusData.error || t("selfhosted.error.generic"));
+          }
 
           if (statusData.status === "success") {
             updateStep({ stepId: "config", status: "success", message: t("selfhosted.step.config.ready") });
