@@ -35,6 +35,7 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
   const [loading, setLoading] = useState(false);
   const [showRenew, setShowRenew] = useState(false);
   const [renewPlan, setRenewPlan] = useState<(typeof RENTAL_PLANS)[number] | null>(null);
+  const [subscription, setSubscription] = useState<string | null>(null);
   const { t, tPlan } = useLocaleStore();
   const { showToast } = useToast();
   const router = useRouter();
@@ -174,6 +175,22 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
     setLoading(false);
   };
 
+  const handleLoadSubscription = async () => {
+    try {
+      const res = await workerFetch(`/api/rental/${rental.id}/subscription`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.error) {
+        showToast(data.error, "error");
+        return;
+      }
+      setSubscription(data.subscription || null);
+    } catch {
+      showToast(t("common.error.generic"), "error");
+    }
+  };
+
   const clientLabels = {
     clashMeta: t("client.clashMeta"),
     singbox: t("client.singbox"),
@@ -258,6 +275,18 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
           >
             {t("common.copy")}
           </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={handleLoadSubscription}
+          >
+            Subscription
+          </Button>
+          {subscription && (
+            <div className="rounded-lg bg-muted/50 p-4 font-mono text-xs break-all">
+              {subscription}
+            </div>
+          )}
         </Card>
       )}
 

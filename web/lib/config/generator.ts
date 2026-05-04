@@ -60,6 +60,18 @@ export function generateVlessRealityConfig(params: {
   };
 }
 
+export function generateVlessRealitySubscription(params: {
+  ip: string;
+  port: number;
+  uuid: string;
+  serverName: string;
+  publicKey: string;
+  shortId: string;
+}) {
+  const single = generateVlessRealityConfig(params).v2rayN;
+  return Buffer.from(`${single}\n`, "utf-8").toString("base64");
+}
+
 // Hysteria2 config generators
 export function generateHysteria2Config(params: {
   ip: string;
@@ -112,4 +124,15 @@ export function generateHysteria2Config(params: {
     v2rayN: uri,
     shadowrocket: uri,
   };
+}
+
+export function generateHysteria2Subscription(params: {
+  ip: string;
+  port: number;
+  password: string;
+  obfs?: string;
+  insecure?: boolean;
+}) {
+  const single = generateHysteria2Config(params).v2rayN;
+  return Buffer.from(`${single}\n`, "utf-8").toString("base64");
 }
