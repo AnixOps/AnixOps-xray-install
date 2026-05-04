@@ -147,6 +147,9 @@ export default function AdminPage() {
   const [editingDuration, setEditingDuration] = useState("");
   const [editingExpiresAt, setEditingExpiresAt] = useState("");
   const [codeFilter, setCodeFilter] = useState<"all" | "available" | "used">("all");
+  const [selectedCodeIds, setSelectedCodeIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
   const selectedConfigText = useMemo(() => {
     if (!selectedRental?.config) {
@@ -161,6 +164,13 @@ export default function AdminPage() {
     }
     return codes.filter((row) => codeFilter === "used" ? Boolean(row.redeem_codes.usedBy) : !row.redeem_codes.usedBy);
   }, [codes, codeFilter]);
+
+  const selectableVisibleCodeIds = useMemo(
+    () => filteredCodes.filter((row) => !row.redeem_codes.usedBy).map((row) => row.redeem_codes.id),
+    [filteredCodes],
+  );
+
+  const allVisibleSelected = selectableVisibleCodeIds.length > 0 && selectableVisibleCodeIds.every((id) => selectedCodeIds.includes(id));
 
   const loadCodes = async () => {
     if (!token) return;
@@ -186,14 +196,19 @@ export default function AdminPage() {
     setOverview(data);
   };
 
-  const loadAll = async () => {
-    setLoading(true);
+  const loadAll = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       await Promise.all([loadOverview(), loadCodes()]);
+      setLastUpdatedAt(new Date().toISOString());
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to load admin dashboard", "error");
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -225,6 +240,36 @@ export default function AdminPage() {
     }
     loadAll();
   }, [token, isAdmin]);
+
+  useEffect(() => {
+    if (!token || !isAdmin) {
+      return;
+    }
+
+    const refresh = () => {
+      loadAll(true);
+      if (selectedRentalId) {
+        loadRentalDetail(selectedRentalId);
+      }
+    };
+
+    const interval = setInterval(refresh, 15000);
+    const onFocus = () => refresh();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [token, isAdmin, selectedRentalId]);
 
   const handleGenerate = async () => {
     if (!token) return;
@@ -353,9 +398,50 @@ export default function AdminPage() {
         throw new Error(data.error || "Failed to delete redeem code");
       }
       showToast("Redeem code deleted", "success");
+      setSelectedCodeIds((current) => current.filter((id) => id !== row.redeem_codes.id));
       await loadAll();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to delete redeem code", "error");
+    }
+  };
+
+  const toggleCodeSelection = (id: string) => {
+    setSelectedCodeIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedCodeIds((current) => {
+      if (allVisibleSelected) {
+        return current.filter((id) => !selectableVisibleCodeIds.includes(id));
+      }
+      const next = new Set(current);
+      selectableVisibleCodeIds.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (!token || selectedCodeIds.length === 0) return;
+    if (!confirm(`Delete ${selectedCodeIds.length} selected redeem code(s)?`)) return;
+    setBulkDeleting(true);
+    try {
+      for (const id of selectedCodeIds) {
+        const res = await workerFetch(`/api/admin/redeem-codes/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || `Failed to delete redeem code ${id}`);
+        }
+      }
+      showToast(`Deleted ${selectedCodeIds.length} redeem code(s)`, "success");
+      setSelectedCodeIds([]);
+      await loadAll();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to delete selected redeem codes", "error");
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -370,9 +456,15 @@ export default function AdminPage() {
           <h1 className="text-2xl font-bold">Admin</h1>
           <p className="text-sm text-muted-foreground">Operations dashboard, search, rental control, and redeem codes</p>
         </div>
-        <Button variant="outline" onClick={() => router.push("/")}>
-          Back
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="text-right text-xs text-muted-foreground">
+            <div>Auto refresh: 15s</div>
+            <div>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString()}` : "Waiting for first sync"}</div>
+          </div>
+          <Button variant="outline" onClick={() => router.push("/")}>
+            Back
+          </Button>
+        </div>
       </div>
 
       {overview && (
@@ -646,8 +738,11 @@ export default function AdminPage() {
             >
               Used
             </button>
-            <Button variant="outline" onClick={loadAll} disabled={loading}>
+            <Button variant="outline" onClick={() => loadAll()} disabled={loading}>
               {loading ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleting || selectedCodeIds.length === 0}>
+              {bulkDeleting ? "Deleting..." : `Delete Selected${selectedCodeIds.length ? ` (${selectedCodeIds.length})` : ""}`}
             </Button>
           </div>
         </div>
@@ -659,6 +754,14 @@ export default function AdminPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-2 pr-4 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      className="h-4 w-4"
+                    />
+                  </th>
                   <th className="py-2 pr-4 font-medium">Code</th>
                   <th className="py-2 pr-4 font-medium">Duration</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
@@ -669,12 +772,21 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {codes.map((row) => {
+                {filteredCodes.map((row) => {
                   const code = row.redeem_codes;
                   const used = Boolean(code.usedBy);
                   const isEditing = editingCodeId === code.id;
                   return (
                     <tr key={code.id} className="border-b last:border-0">
+                      <td className="py-3 pr-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedCodeIds.includes(code.id)}
+                          disabled={used}
+                          onChange={() => toggleCodeSelection(code.id)}
+                          className="h-4 w-4"
+                        />
+                      </td>
                       <td className="py-3 pr-4 font-mono text-xs">{code.code}</td>
                       <td className="py-3 pr-4">
                         {isEditing ? (
