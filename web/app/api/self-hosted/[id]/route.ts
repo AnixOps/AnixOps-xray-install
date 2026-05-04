@@ -23,5 +23,6 @@ export async function GET(
     progress: deploy.progress,
     config: deploy.config,
     error: deploy.error,
+    logs: deploy.logs || [],
   });
 }

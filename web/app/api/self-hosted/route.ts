@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { NodeSSH } from "node-ssh";
-import { deployments, cleanupDeployments } from "@/lib/deploy/self-hosted-state";
+import { deployments, cleanupDeployments, type DeploymentLogEntry } from "@/lib/deploy/self-hosted-state";
 import { generateKeyPairSync, randomUUID, randomBytes, type KeyObject } from "crypto";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
@@ -9,6 +9,14 @@ import { join } from "path";
 function deployLog(level: "info" | "warn" | "error", deployId: string, message: string) {
   const ts = new Date().toISOString();
   const prefix = level === "error" ? "ERROR" : level === "warn" ? "WARN" : "INFO";
+  const entry: DeploymentLogEntry = { ts, level, message };
+  const current = deployments.get(deployId);
+  if (current) {
+    deployments.set(deployId, {
+      ...current,
+      logs: [...(current.logs || []), entry].slice(-200),
+    });
+  }
   if (level === "error") {
     process.stderr.write(`[${prefix}] ${ts} [${deployId}] ${message}\n`);
   } else {
@@ -63,6 +71,7 @@ export async function POST(request: Request) {
       status: "running",
       progress: 0,
       createdAt: Date.now(),
+      logs: [],
     });
 
     // Start deployment asynchronously

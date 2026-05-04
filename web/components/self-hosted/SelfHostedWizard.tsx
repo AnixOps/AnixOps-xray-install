@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useDeployStore } from "@/lib/deploy/store";
 import { PROVIDER_INFO, PROTOCOL_INFO } from "@/lib/deploy/types";
 import { useLocaleStore } from "@/lib/i18n/store";
@@ -22,6 +23,7 @@ export function SelfHostedWizard() {
   const steps = useDeployStore((s) => s.steps);
   const config = useDeployStore((s) => s.config);
   const error = useDeployStore((s) => s.error);
+  const [deployLogs, setDeployLogs] = useState<Array<{ ts: string; level: string; message: string }>>([]);
 
   const setStep = useDeployStore((s) => s.setStep);
   const setDeployMethod = useDeployStore((s) => s.setDeployMethod);
@@ -54,6 +56,21 @@ export function SelfHostedWizard() {
             {s.message && <span className="text-xs text-muted-foreground">{s.message}</span>}
           </div>
         ))}
+        {deployLogs.length > 0 && (
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">Logs</div>
+            <div className="max-h-56 space-y-1 overflow-auto font-mono text-xs">
+              {deployLogs.map((log, index) => (
+                <div key={`${log.ts}-${index}`} className="flex gap-2">
+                  <span className="shrink-0 text-muted-foreground">{new Date(log.ts).toLocaleTimeString()}</span>
+                  <span className={log.level === "error" ? "text-red-600" : log.level === "warn" ? "text-amber-600" : "text-foreground"}>
+                    {log.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Card>
     );
   }
@@ -310,6 +327,7 @@ export function SelfHostedWizard() {
 
           const statusRes = await fetch(`/api/self-hosted/${deployId}`);
           const statusData = await statusRes.json();
+          setDeployLogs(statusData.logs || []);
 
           if (statusData.status === "success") {
             updateStep({ stepId: "config", status: "success", message: t("selfhosted.step.config.ready") });
