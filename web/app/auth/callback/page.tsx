@@ -31,7 +31,7 @@ export default function AuthCallbackPage() {
           setError(data.error);
           return;
         }
-        setAuth(data.userId, data.token, data.email);
+        setAuth(data.userId, data.token, data.email, Boolean(data.isAdmin));
         router.push("/");
       })
       .catch((e) => {

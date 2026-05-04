@@ -267,7 +267,7 @@ export function RentalWizard() {
                   setProcessing(false);
                   return;
                 }
-                setAuth(authData.userId, authData.token, email);
+                setAuth(authData.userId, authData.token, email, Boolean(authData.isAdmin));
                 setRegistered(true);
 
                 if (paymentMethod === "stripe") {

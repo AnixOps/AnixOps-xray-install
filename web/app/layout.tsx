@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui";
+import { AuthBootstrap } from "@/components/auth/AuthBootstrap";
 
 export const metadata: Metadata = {
   title: "AnixOps - One-Click Node Deployment",
@@ -29,7 +30,10 @@ export default async function RootLayout({
   return (
     <html lang={locale}>
       <body className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 antialiased">
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          <AuthBootstrap />
+          {children}
+        </ToastProvider>
       </body>
     </html>
   );

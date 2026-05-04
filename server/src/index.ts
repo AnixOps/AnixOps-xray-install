@@ -70,6 +70,21 @@ type Variables = {
   userId: string;
 };
 
+function normalizeEmail(value: string | null | undefined) {
+  return (value || "").trim().toLowerCase();
+}
+
+const adminEmails = new Set(
+  (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((value) => normalizeEmail(value))
+    .filter(Boolean),
+);
+
+function isAdminEmail(email: string | null | undefined) {
+  return adminEmails.has(normalizeEmail(email));
+}
+
 // Hono app
 const app = new Hono<{ Variables: Variables }>();
 
@@ -198,7 +213,12 @@ app.post("/api/auth/verify", async (c) => {
   }
 
   const sessionToken = await issueSession(userId);
-  return c.json({ userId, token: sessionToken, email: user[0].email });
+  return c.json({
+    userId,
+    token: sessionToken,
+    email: user[0].email,
+    isAdmin: isAdminEmail(user[0].email),
+  });
 });
 
 app.get("/api/auth/me", verifyAuth, async (c) => {
@@ -207,7 +227,11 @@ app.get("/api/auth/me", verifyAuth, async (c) => {
   if (user.length === 0) {
     return c.json({ error: "User not found" }, 404);
   }
-  return c.json({ userId: user[0].id, email: user[0].email });
+  return c.json({
+    userId: user[0].id,
+    email: user[0].email,
+    isAdmin: isAdminEmail(user[0].email),
+  });
 });
 
 app.post("/api/auth/register", async (c) => {
@@ -220,7 +244,13 @@ app.post("/api/auth/register", async (c) => {
   const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing.length > 0) {
     const token = await issueSession(existing[0].id);
-    return c.json({ userId: existing[0].id, token, email, exists: true });
+    return c.json({
+      userId: existing[0].id,
+      token,
+      email,
+      exists: true,
+      isAdmin: isAdminEmail(existing[0].email),
+    });
   }
 
   const userId = randomUUID();
@@ -228,7 +258,7 @@ app.post("/api/auth/register", async (c) => {
 
   const token = await issueSession(userId);
 
-  return c.json({ userId, token, email });
+  return c.json({ userId, token, email, isAdmin: isAdminEmail(email) });
 });
 
 app.post("/api/auth/login", async (c) => {
@@ -244,7 +274,12 @@ app.post("/api/auth/login", async (c) => {
 
   const token = await issueSession(user[0].id);
 
-  return c.json({ userId: user[0].id, token });
+  return c.json({
+    userId: user[0].id,
+    token,
+    email: user[0].email,
+    isAdmin: isAdminEmail(user[0].email),
+  });
 });
 
 // ============================================================
@@ -805,9 +840,26 @@ app.post("/api/redeem", verifyAuth, async (c) => {
 // ============================================================
 // Admin
 // ============================================================
-app.post("/api/admin/redeem-codes", async (c) => {
+async function verifyAdminRequest(c: { req: { header: (name: string) => string | undefined } }) {
+  const auth = c.req.header("Authorization");
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.slice(7);
+    const userId = await redis.get(`session:${token}`);
+    if (userId) {
+      await redis.expire(`session:${token}`, 86400 * 30);
+      const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (user.length > 0 && isAdminEmail(user[0].email)) {
+        return true;
+      }
+    }
+  }
+
   const apiSecret = c.req.header("X-API-Secret");
-  if (apiSecret !== env.API_SECRET) {
+  return apiSecret === env.API_SECRET;
+}
+
+app.post("/api/admin/redeem-codes", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
@@ -845,8 +897,7 @@ app.post("/api/admin/redeem-codes", async (c) => {
 });
 
 app.get("/api/admin/redeem-codes", async (c) => {
-  const apiSecret = c.req.header("X-API-Secret");
-  if (apiSecret !== env.API_SECRET) {
+  if (!(await verifyAdminRequest(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 

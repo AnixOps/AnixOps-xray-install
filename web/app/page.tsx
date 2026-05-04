@@ -196,6 +196,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const { t, locale, setLocale } = useLocaleStore();
   const token = useAuthStore((s) => s.token);
   const email = useAuthStore((s) => s.email);
+  const isAdmin = useAuthStore((s) => s.isAdmin);
   const logout = useAuthStore((s) => s.logout);
   const router = useRouter();
 
@@ -222,6 +223,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                 className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition"
               >
                 {t("payment.history")}
+              </button>
+            )}
+            {token && isAdmin && (
+              <button
+                onClick={() => router.push("/admin")}
+                className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition"
+              >
+                Admin
               </button>
             )}
             {token && email && (
