@@ -53,7 +53,7 @@ const env = envSchema.parse(process.env);
 
 // Stripe setup
 const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: "2025-02-24.acacia" }) : null;
-const versions = JSON.parse(readFileSync(resolve(process.cwd(), "../versions.json"), "utf-8")) as { frontend: string; backend: string };
+const versions = JSON.parse(readFileSync(resolve(process.cwd(), "../versions.json"), "utf-8")) as { frontend: string; backend: string; commit?: string };
 const mailer = env.SMTP_HOST && env.SMTP_PORT && env.SMTP_USER && env.SMTP_PASS
   ? nodemailer.createTransport({
       host: env.SMTP_HOST,
@@ -906,6 +906,61 @@ app.get("/api/admin/redeem-codes", async (c) => {
     .orderBy(desc(redeemCodes.createdAt));
 
   return c.json({ codes });
+});
+
+app.patch("/api/admin/redeem-codes/:id", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const { durationHours, expiresAt } = body as { durationHours?: number; expiresAt?: string | null };
+
+  const existing = await db.select().from(redeemCodes).where(eq(redeemCodes.id, id)).limit(1);
+  if (existing.length === 0) {
+    return c.json({ error: "Redeem code not found" }, 404);
+  }
+
+  if (existing[0].usedBy && durationHours && durationHours !== existing[0].durationHours) {
+    return c.json({ error: "Used redeem codes cannot change duration" }, 400);
+  }
+
+  const updates: Partial<typeof redeemCodes.$inferInsert> = {};
+  if (typeof durationHours === "number") {
+    updates.durationHours = durationHours;
+  }
+  if (expiresAt === null) {
+    updates.expiresAt = null;
+  } else if (typeof expiresAt === "string" && expiresAt.length > 0) {
+    updates.expiresAt = new Date(expiresAt);
+  }
+
+  const updated = await db.update(redeemCodes)
+    .set(updates)
+    .where(eq(redeemCodes.id, id))
+    .returning();
+
+  return c.json({ code: updated[0] });
+});
+
+app.delete("/api/admin/redeem-codes/:id", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const id = c.req.param("id");
+  const existing = await db.select().from(redeemCodes).where(eq(redeemCodes.id, id)).limit(1);
+  if (existing.length === 0) {
+    return c.json({ error: "Redeem code not found" }, 404);
+  }
+
+  if (existing[0].usedBy) {
+    return c.json({ error: "Used redeem codes cannot be deleted" }, 400);
+  }
+
+  await db.delete(redeemCodes).where(eq(redeemCodes.id, id));
+  return c.json({ deleted: true, id });
 });
 
 app.get("/api/admin/overview", async (c) => {

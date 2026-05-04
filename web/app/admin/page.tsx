@@ -143,6 +143,10 @@ export default function AdminPage() {
   const [durationHours, setDurationHours] = useState("24");
   const [expiresAt, setExpiresAt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
+  const [editingDuration, setEditingDuration] = useState("");
+  const [editingExpiresAt, setEditingExpiresAt] = useState("");
+  const [codeFilter, setCodeFilter] = useState<"all" | "available" | "used">("all");
 
   const selectedConfigText = useMemo(() => {
     if (!selectedRental?.config) {
@@ -150,6 +154,13 @@ export default function AdminPage() {
     }
     return JSON.stringify(selectedRental.config, null, 2);
   }, [selectedRental]);
+
+  const filteredCodes = useMemo(() => {
+    if (codeFilter === "all") {
+      return codes;
+    }
+    return codes.filter((row) => codeFilter === "used" ? Boolean(row.redeem_codes.usedBy) : !row.redeem_codes.usedBy);
+  }, [codes, codeFilter]);
 
   const loadCodes = async () => {
     if (!token) return;
@@ -290,6 +301,61 @@ export default function AdminPage() {
       showToast(error instanceof Error ? error.message : "Failed to destroy rental", "error");
     } finally {
       setDestroying(false);
+    }
+  };
+
+  const startEditCode = (row: RedeemCodeRow) => {
+    setEditingCodeId(row.redeem_codes.id);
+    setEditingDuration(String(row.redeem_codes.durationHours));
+    setEditingExpiresAt(
+      row.redeem_codes.expiresAt
+        ? new Date(row.redeem_codes.expiresAt).toISOString().slice(0, 16)
+        : "",
+    );
+  };
+
+  const handleUpdateCode = async () => {
+    if (!token || !editingCodeId) return;
+    try {
+      const res = await workerFetch(`/api/admin/redeem-codes/${editingCodeId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          durationHours: Number(editingDuration),
+          expiresAt: editingExpiresAt ? new Date(editingExpiresAt).toISOString() : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to update redeem code");
+      }
+      showToast("Redeem code updated", "success");
+      setEditingCodeId(null);
+      await loadAll();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to update redeem code", "error");
+    }
+  };
+
+  const handleDeleteCode = async (row: RedeemCodeRow) => {
+    if (!token) return;
+    if (!confirm(`Delete code ${row.redeem_codes.code}?`)) return;
+    try {
+      const res = await workerFetch(`/api/admin/redeem-codes/${row.redeem_codes.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to delete redeem code");
+      }
+      showToast("Redeem code deleted", "success");
+      await loadAll();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to delete redeem code", "error");
     }
   };
 
@@ -561,9 +627,29 @@ export default function AdminPage() {
       <Card className="p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Redeem Codes</h2>
-          <Button variant="outline" onClick={loadAll} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
-          </Button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCodeFilter("all")}
+              className={`rounded-md border px-3 py-1 text-xs ${codeFilter === "all" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setCodeFilter("available")}
+              className={`rounded-md border px-3 py-1 text-xs ${codeFilter === "available" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            >
+              Available
+            </button>
+            <button
+              onClick={() => setCodeFilter("used")}
+              className={`rounded-md border px-3 py-1 text-xs ${codeFilter === "used" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            >
+              Used
+            </button>
+            <Button variant="outline" onClick={loadAll} disabled={loading}>
+              {loading ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -579,24 +665,51 @@ export default function AdminPage() {
                   <th className="py-2 pr-4 font-medium">Used By</th>
                   <th className="py-2 pr-4 font-medium">Expires</th>
                   <th className="py-2 pr-0 font-medium">Created</th>
+                  <th className="py-2 pl-4 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {codes.map((row) => {
                   const code = row.redeem_codes;
                   const used = Boolean(code.usedBy);
+                  const isEditing = editingCodeId === code.id;
                   return (
                     <tr key={code.id} className="border-b last:border-0">
                       <td className="py-3 pr-4 font-mono text-xs">{code.code}</td>
-                      <td className="py-3 pr-4">{code.durationHours}h</td>
+                      <td className="py-3 pr-4">
+                        {isEditing ? (
+                          <Input value={editingDuration} onChange={(e) => setEditingDuration(e.target.value)} type="number" className="h-8 w-24" />
+                        ) : `${code.durationHours}h`}
+                      </td>
                       <td className="py-3 pr-4">
                         <Badge variant={used ? "secondary" : "default"}>
                           {used ? "Used" : "Available"}
                         </Badge>
                       </td>
                       <td className="py-3 pr-4 text-xs">{row.users?.email || "-"}</td>
-                      <td className="py-3 pr-4 text-xs">{code.expiresAt ? new Date(code.expiresAt).toLocaleString() : "-"}</td>
+                      <td className="py-3 pr-4 text-xs">
+                        {isEditing ? (
+                          <Input value={editingExpiresAt} onChange={(e) => setEditingExpiresAt(e.target.value)} type="datetime-local" className="h-8 min-w-[180px]" />
+                        ) : code.expiresAt ? new Date(code.expiresAt).toLocaleString() : "-"}
+                      </td>
                       <td className="py-3 pr-0 text-xs">{new Date(code.createdAt).toLocaleString()}</td>
+                      <td className="py-3 pl-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          {isEditing ? (
+                            <>
+                              <Button size="sm" onClick={handleUpdateCode}>Save</Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingCodeId(null)}>Cancel</Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => startEditCode(row)}>Edit</Button>
+                              {!used && (
+                                <Button size="sm" variant="destructive" onClick={() => handleDeleteCode(row)}>Delete</Button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}

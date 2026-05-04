@@ -267,7 +267,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           <a href="#kb" className="text-primary hover:underline">{t("footer.kb")}</a>
           {" "}·{" "}
           <a href="#ai-agent" className="text-primary hover:underline">{t("footer.ai")} →</a>
-          <div className="mt-2 text-xs text-muted-foreground/80">FE v{versions.frontend}</div>
+          <div className="mt-2 text-xs text-muted-foreground/80">
+            FE v{versions.frontend} · BE v{versions.backend} · {versions.commit || "dev"}
+          </div>
         </div>
       </footer>
     </main>
