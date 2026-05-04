@@ -195,6 +195,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const reset = useDeployStore((s) => s.reset);
   const { t, locale, setLocale } = useLocaleStore();
   const token = useAuthStore((s) => s.token);
+  const email = useAuthStore((s) => s.email);
+  const logout = useAuthStore((s) => s.logout);
   const router = useRouter();
 
   return (
@@ -206,6 +208,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             <span className="text-lg font-bold tracking-tight">AnixOps</span>
           </button>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            {mode === "self-hosted" && (
+              <span className={`rounded-md border px-2 py-0.5 text-xs ${token ? "border-green-300 text-green-700" : "border-amber-300 text-amber-700"}`}>
+                {token ? "Authorized" : "Unauthorized"}
+              </span>
+            )}
             {mode === "rental" && (
               <span className="text-xs text-muted-foreground">{t("mode.rental.label")}</span>
             )}
@@ -216,6 +223,20 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               >
                 {t("payment.history")}
               </button>
+            )}
+            {token && email && (
+              <div className="flex items-center gap-2">
+                <span className="max-w-[180px] truncate text-xs">{email}</span>
+                <button
+                  onClick={() => {
+                    logout();
+                    router.push("/");
+                  }}
+                  className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition"
+                >
+                  Logout
+                </button>
+              </div>
             )}
             <button
               onClick={() => setLocale(locale === "zh" ? "en" : "zh")}
