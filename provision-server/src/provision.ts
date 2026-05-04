@@ -47,6 +47,7 @@ function getOrCreateSSHKey(): { publicKey: string; privateKey: string } {
   const { publicKey: pubKeyObject, privateKey } = generateKeyPairSync("ed25519", {
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
   });
+  const privateKeyPem = privateKey as unknown as string;
 
   // Cloud providers require SSH wire format ("ssh-ed25519 AAAA..."), not PEM/SPKI
   const jwk = (pubKeyObject as KeyObject).export({ format: "jwk" }) as { x: string };
@@ -56,11 +57,11 @@ function getOrCreateSSHKey(): { publicKey: string; privateKey: string } {
   const wire = Buffer.concat([lenOf(keyTypeBuf.length), keyTypeBuf, lenOf(rawPub.length), rawPub]);
   const sshPublicKey = `ssh-ed25519 ${wire.toString("base64")} anixops`;
 
-  writeFileSync(SSH_KEY_PATH, privateKey, { mode: 0o600 });
+  writeFileSync(SSH_KEY_PATH, privateKeyPem, { mode: 0o600 });
   writeFileSync(pubPath, sshPublicKey);
 
   logger.info("Generated new SSH key pair (wire format)");
-  return { publicKey: sshPublicKey, privateKey };
+  return { publicKey: sshPublicKey, privateKey: privateKeyPem };
 }
 
 interface ProvisionResult {

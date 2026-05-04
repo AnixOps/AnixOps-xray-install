@@ -6,7 +6,6 @@ COPY provision-server/package*.json ./
 RUN npm ci
 COPY provision-server/tsconfig.json ./
 COPY provision-server/src/ ./src/
-RUN npx tsc --noEmit
 RUN npm run build
 
 # Production stage
