@@ -232,6 +232,27 @@ export default function AdminPage() {
     }
   };
 
+  const refreshAdminState = async () => {
+    await loadAll(true);
+    if (selectedRentalId) {
+      await loadRentalDetail(selectedRentalId);
+    }
+    if (searchQuery.trim().length >= 2) {
+      try {
+        const res = await workerFetch(`/api/admin/search?q=${encodeURIComponent(searchQuery.trim())}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = await res.json();
+        if (res.ok && !data.error) {
+          setSearchResult(data);
+        }
+      } catch {
+        // Search refresh is best-effort
+      }
+    }
+  };
+
   useEffect(() => {
     if (!token) {
       router.push("/");
@@ -299,7 +320,7 @@ export default function AdminPage() {
         await navigator.clipboard?.writeText(generated);
       }
       showToast(`Generated ${data.count} code(s)`, "success");
-      await loadAll(true);
+      await refreshAdminState();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to generate redeem codes", "error");
     } finally {
@@ -345,7 +366,7 @@ export default function AdminPage() {
         throw new Error(data.error || "Failed to destroy rental");
       }
       showToast(`Destroy queued for ${selectedRentalId}`, "success");
-      await Promise.all([loadAll(), loadRentalDetail(selectedRentalId)]);
+      await refreshAdminState();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to destroy rental", "error");
     } finally {
@@ -401,7 +422,7 @@ export default function AdminPage() {
       }
       showToast("Redeem code updated", "success");
       setEditingCodeId(null);
-      await loadAll(true);
+      await refreshAdminState();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to update redeem code", "error");
     }
@@ -421,7 +442,7 @@ export default function AdminPage() {
       }
       removeCodesFromState([row.redeem_codes.id]);
       showToast("Redeem code deleted", "success");
-      await loadAll(true);
+      await refreshAdminState();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to delete redeem code", "error");
     }
@@ -459,7 +480,7 @@ export default function AdminPage() {
       }
       removeCodesFromState(selectedCodeIds);
       showToast(`Deleted ${selectedCodeIds.length} redeem code(s)`, "success");
-      await loadAll(true);
+      await refreshAdminState();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to delete selected redeem codes", "error");
     } finally {
