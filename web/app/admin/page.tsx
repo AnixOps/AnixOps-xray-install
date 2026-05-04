@@ -22,11 +22,51 @@ interface RedeemCodeRow {
   } | null;
 }
 
+interface AdminOverviewResponse {
+  summary: {
+    totalUsers: number;
+    activeRentals: number;
+    provisioningRentals: number;
+    totalRevenue: number;
+    availableRedeemCodes: number;
+    usedRedeemCodes: number;
+  };
+  recentRentals: Array<{
+    rentalId: string;
+    email: string | null;
+    protocol: string;
+    status: string;
+    ip: string | null;
+    durationHours: number;
+    totalPrice: number;
+    createdAt: string;
+    expiresAt: string | null;
+  }>;
+  recentPayments: Array<{
+    paymentId: string;
+    rentalId: string | null;
+    email: string | null;
+    amount: number;
+    currency: string;
+    method: string;
+    status: string;
+    createdAt: string;
+  }>;
+  recentAuditEntries: Array<{
+    id: number;
+    rentalId: string | null;
+    action: string;
+    detail: string | null;
+    createdAt: string;
+  }>;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const token = useAuthStore((s) => s.token);
   const isAdmin = useAuthStore((s) => s.isAdmin);
+  const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
   const [codes, setCodes] = useState<RedeemCodeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -36,7 +76,6 @@ export default function AdminPage() {
 
   const loadCodes = async () => {
     if (!token) return;
-    setLoading(true);
     try {
       const res = await workerFetch("/api/admin/redeem-codes", {
         headers: { Authorization: `Bearer ${token}` },
@@ -48,9 +87,29 @@ export default function AdminPage() {
       setCodes(data.codes || []);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to load admin data", "error");
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const loadOverview = async () => {
+    if (!token) return;
+    try {
+      const res = await workerFetch("/api/admin/overview", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to load overview");
+      }
+      setOverview(data);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to load overview", "error");
+    }
+  };
+
+  const loadAll = async () => {
+    setLoading(true);
+    await Promise.all([loadOverview(), loadCodes()]);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -62,7 +121,7 @@ export default function AdminPage() {
       router.push("/");
       return;
     }
-    loadCodes();
+    loadAll();
   }, [token, isAdmin]);
 
   const handleGenerate = async () => {
@@ -90,7 +149,7 @@ export default function AdminPage() {
         await navigator.clipboard?.writeText(generated);
       }
       showToast(`Generated ${data.count} code(s)`, "success");
-      await loadCodes();
+      await loadAll();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to generate redeem codes", "error");
     } finally {
@@ -107,12 +166,93 @@ export default function AdminPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Admin</h1>
-          <p className="text-sm text-muted-foreground">Redeem code management</p>
+          <p className="text-sm text-muted-foreground">Operations dashboard and redeem code management</p>
         </div>
         <Button variant="outline" onClick={() => router.push("/")}>
           Back
         </Button>
       </div>
+
+      {overview && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <SummaryCard label="Users" value={String(overview.summary.totalUsers)} />
+          <SummaryCard label="Active Rentals" value={String(overview.summary.activeRentals)} />
+          <SummaryCard label="Provisioning" value={String(overview.summary.provisioningRentals)} />
+          <SummaryCard label="Revenue" value={`$${overview.summary.totalRevenue.toFixed(2)}`} />
+          <SummaryCard label="Codes Available" value={String(overview.summary.availableRedeemCodes)} />
+          <SummaryCard label="Codes Used" value={String(overview.summary.usedRedeemCodes)} />
+        </div>
+      )}
+
+      {overview && (
+        <div className="grid gap-6 xl:grid-cols-3">
+          <Card className="p-6 space-y-4 xl:col-span-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Recent Rentals</h2>
+              <Badge variant="outline">{overview.recentRentals.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {overview.recentRentals.map((rental) => (
+                <div key={rental.rentalId} className="rounded-lg border p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{rental.email || "Unknown user"}</div>
+                    <Badge variant={rental.status === "active" ? "default" : "secondary"}>{rental.status}</Badge>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {rental.protocol} · {rental.durationHours}h · ${rental.totalPrice.toFixed(2)}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {new Date(rental.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card className="p-6 space-y-4 xl:col-span-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Recent Payments</h2>
+              <Badge variant="outline">{overview.recentPayments.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {overview.recentPayments.map((payment) => (
+                <div key={payment.paymentId} className="rounded-lg border p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{payment.email || "Unknown user"}</div>
+                    <Badge variant={payment.status === "completed" ? "default" : "secondary"}>{payment.status}</Badge>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    ${payment.amount.toFixed(2)} {payment.currency.toUpperCase()} · {payment.method}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {new Date(payment.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card className="p-6 space-y-4 xl:col-span-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Recent Audit</h2>
+              <Badge variant="outline">{overview.recentAuditEntries.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {overview.recentAuditEntries.map((entry) => (
+                <div key={entry.id} className="rounded-lg border p-3 text-sm">
+                  <div className="font-medium">{entry.action}</div>
+                  {entry.detail && (
+                    <div className="mt-1 text-xs text-muted-foreground">{entry.detail}</div>
+                  )}
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {new Date(entry.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       <Card className="p-6 space-y-4">
         <h2 className="text-lg font-semibold">Generate Codes</h2>
@@ -140,7 +280,7 @@ export default function AdminPage() {
       <Card className="p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Redeem Codes</h2>
-          <Button variant="outline" onClick={loadCodes} disabled={loading}>
+          <Button variant="outline" onClick={loadAll} disabled={loading}>
             {loading ? "Refreshing..." : "Refresh"}
           </Button>
         </div>
@@ -191,5 +331,14 @@ export default function AdminPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <Card className="p-5">
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl font-semibold">{value}</div>
+    </Card>
   );
 }

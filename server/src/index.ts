@@ -908,6 +908,89 @@ app.get("/api/admin/redeem-codes", async (c) => {
   return c.json({ codes });
 });
 
+app.get("/api/admin/overview", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const [
+    totalUsersRow,
+    activeRentalsRow,
+    provisioningRentalsRow,
+    totalRevenueRow,
+    availableCodesRow,
+    usedCodesRow,
+    recentRentals,
+    recentPayments,
+    recentAuditEntries,
+  ] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(users),
+    db.select({ count: sql<number>`count(*)::int` }).from(rentals)
+      .where(eq(rentals.status, "active")),
+    db.select({ count: sql<number>`count(*)::int` }).from(rentals)
+      .where(eq(rentals.status, "provisioning")),
+    db.select({ total: sql<number>`coalesce(sum(${payments.amount}), 0)` }).from(payments)
+      .where(eq(payments.status, "completed")),
+    db.select({ count: sql<number>`count(*)::int` }).from(redeemCodes)
+      .where(sql`${redeemCodes.usedBy} IS NULL`),
+    db.select({ count: sql<number>`count(*)::int` }).from(redeemCodes)
+      .where(sql`${redeemCodes.usedBy} IS NOT NULL`),
+    db.select({
+      rentalId: rentals.id,
+      email: users.email,
+      protocol: rentals.protocol,
+      status: rentals.status,
+      ip: rentals.ip,
+      durationHours: rentals.durationHours,
+      totalPrice: rentals.totalPrice,
+      createdAt: rentals.createdAt,
+      expiresAt: rentals.expiresAt,
+    })
+      .from(rentals)
+      .leftJoin(users, eq(rentals.userId, users.id))
+      .orderBy(desc(rentals.createdAt))
+      .limit(8),
+    db.select({
+      paymentId: payments.id,
+      rentalId: payments.rentalId,
+      email: users.email,
+      amount: payments.amount,
+      currency: payments.currency,
+      method: payments.method,
+      status: payments.status,
+      createdAt: payments.createdAt,
+    })
+      .from(payments)
+      .leftJoin(users, eq(payments.userId, users.id))
+      .orderBy(desc(payments.createdAt))
+      .limit(8),
+    db.select({
+      id: auditLog.id,
+      rentalId: auditLog.rentalId,
+      action: auditLog.action,
+      detail: auditLog.detail,
+      createdAt: auditLog.createdAt,
+    })
+      .from(auditLog)
+      .orderBy(desc(auditLog.createdAt))
+      .limit(10),
+  ]);
+
+  return c.json({
+    summary: {
+      totalUsers: totalUsersRow[0]?.count ?? 0,
+      activeRentals: activeRentalsRow[0]?.count ?? 0,
+      provisioningRentals: provisioningRentalsRow[0]?.count ?? 0,
+      totalRevenue: Number(totalRevenueRow[0]?.total ?? 0),
+      availableRedeemCodes: availableCodesRow[0]?.count ?? 0,
+      usedRedeemCodes: usedCodesRow[0]?.count ?? 0,
+    },
+    recentRentals,
+    recentPayments,
+    recentAuditEntries,
+  });
+});
+
 // ============================================================
 // Session Status (for Stripe success page)
 // ============================================================
