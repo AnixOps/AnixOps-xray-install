@@ -165,6 +165,7 @@ async function deployAsync(
       deployLog("info", deployId, `Deploying ${protocol}...`);
       deployments.set(deployId, { ...deployments.get(deployId)!, progress: 50 });
       const result = await deployProtocolWithPassword(ip, sshPort, sshPassword, protocol, domain);
+      await verifyDeploymentHealthWithPassword(ip, sshPort, sshPassword, result);
       deployLog("info", deployId, "Protocol deployed");
       deployments.set(deployId, { ...deployments.get(deployId)!, progress: 90 });
 
@@ -222,6 +223,7 @@ async function deployAsync(
     deployLog("info", deployId, `Deploying ${protocol}...`);
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 60 });
     const result = await deployProtocol(ip, protocol, domain as string | undefined);
+    await verifyDeploymentHealth(ip, result);
     deployLog("info", deployId, "Protocol deployed");
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 90 });
 
@@ -737,6 +739,73 @@ async function deployProtocolWithPassword(
   }
 
   throw new Error(`Unsupported protocol: ${protocol}`);
+}
+
+async function verifyDeploymentHealth(ip: string, config: Record<string, string>): Promise<void> {
+  const { privateKey } = getOrCreateSSHKey();
+  const ssh = new NodeSSH();
+  await ssh.connect({ host: ip, username: "root", privateKey });
+  try {
+    await verifyRemoteState(ssh, config);
+  } finally {
+    ssh.dispose();
+  }
+}
+
+async function verifyDeploymentHealthWithPassword(
+  ip: string,
+  port: number,
+  sshPassword: string,
+  config: Record<string, string>
+): Promise<void> {
+  const ssh = new NodeSSH();
+  await ssh.connect({ host: ip, port, username: "root", password: sshPassword });
+  try {
+    await verifyRemoteState(ssh, config);
+  } finally {
+    ssh.dispose();
+  }
+}
+
+async function verifyRemoteState(ssh: NodeSSH, config: Record<string, string>): Promise<void> {
+  if (config.protocol === "vless-reality") {
+    if (!config.publicKey) {
+      throw new Error("VLESS Reality deployment failed: PUBLIC_KEY is empty");
+    }
+
+    const serviceCheck = await ssh.execCommand("systemctl is-active xray");
+    if (!serviceCheck.stdout?.includes("active")) {
+      throw new Error(`VLESS Reality deployment failed: ${serviceCheck.stderr?.trim() || serviceCheck.stdout?.trim() || "xray service is not active"}`);
+    }
+
+    const configCheck = await ssh.execCommand("test -f /usr/local/etc/xray/config.json && echo ok");
+    if (!configCheck.stdout?.includes("ok")) {
+      throw new Error("VLESS Reality deployment failed: xray config file is missing");
+    }
+
+    const portCheck = await ssh.execCommand("ss -lnt '( sport = :443 )' | tail -n +2");
+    if (!portCheck.stdout?.trim()) {
+      throw new Error("VLESS Reality deployment failed: port 443 is not listening");
+    }
+    return;
+  }
+
+  if (config.protocol === "hysteria2") {
+    const serviceCheck = await ssh.execCommand("systemctl is-active hysteria-server");
+    if (!serviceCheck.stdout?.includes("active")) {
+      throw new Error(`Hysteria2 deployment failed: ${serviceCheck.stderr?.trim() || serviceCheck.stdout?.trim() || "hysteria-server service is not active"}`);
+    }
+
+    const configCheck = await ssh.execCommand("test -f /etc/hysteria/config.yaml && echo ok");
+    if (!configCheck.stdout?.includes("ok")) {
+      throw new Error("Hysteria2 deployment failed: config file is missing");
+    }
+
+    const portCheck = await ssh.execCommand("ss -lnup | grep ':443 '");
+    if (!portCheck.stdout?.trim()) {
+      throw new Error("Hysteria2 deployment failed: UDP port 443 is not listening");
+    }
+  }
 }
 
 // Cloudflare DNS record creation

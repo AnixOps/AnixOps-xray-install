@@ -56,6 +56,34 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+ensure_dependency() {
+  local cmd="$1"
+  local pkg="${2:-$1}"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  log_warn "Missing dependency: $cmd, attempting to install ${pkg}..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y "$pkg"
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y "$pkg"
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y "$pkg"
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache "$pkg"
+  else
+    log_error "No supported package manager found to install ${pkg}"
+    exit 1
+  fi
+
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    log_error "Failed to install dependency: $cmd"
+    exit 1
+  fi
+}
+
 # Generate short ID if not provided
 if [[ -z "$SHORT_ID" ]]; then
   SHORT_ID=$(openssl rand -hex 4)
@@ -224,6 +252,9 @@ start_service() {
 
 # Main
 main() {
+  ensure_dependency curl
+  ensure_dependency unzip
+  ensure_dependency openssl openssl
   install_xray
   generate_config
   create_service
