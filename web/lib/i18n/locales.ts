@@ -27,6 +27,13 @@ export const translations: Record<Locale, Record<string, string>> = {
     "common.error.generic": "请求失败",
     "common.lang.en": "EN",
     "common.lang.zh": "中文",
+    "auth.magicLink.title": "邮箱登录",
+    "auth.magicLink.desc": "使用邮件登录链接后才能使用自托管部署。",
+    "auth.magicLink.send": "发送登录链接",
+    "auth.magicLink.sent": "登录链接已发送，请检查邮箱。",
+    "auth.magicLink.signingIn": "正在登录...",
+    "auth.magicLink.verifying": "正在验证登录链接",
+    "auth.magicLink.missingToken": "缺少登录令牌",
 
     // Error page
     "error.title": "出错了",
@@ -230,6 +237,13 @@ export const translations: Record<Locale, Record<string, string>> = {
     "common.error.generic": "Request failed",
     "common.lang.en": "EN",
     "common.lang.zh": "中文",
+    "auth.magicLink.title": "Email Sign-in",
+    "auth.magicLink.desc": "Sign in with an email link before using self-hosted deploy.",
+    "auth.magicLink.send": "Send magic link",
+    "auth.magicLink.sent": "Magic link sent. Check your email.",
+    "auth.magicLink.signingIn": "Signing in...",
+    "auth.magicLink.verifying": "Verifying your magic link",
+    "auth.magicLink.missingToken": "Missing token",
 
     // Error page
     "error.title": "Something went wrong",

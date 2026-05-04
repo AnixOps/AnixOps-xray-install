@@ -9,6 +9,7 @@ import { redis, setCache, deleteCache } from "./lib/redis.js";
 import { addProvisionJob, createProvisionWorker } from "./lib/queue.js";
 import { randomUUID } from "crypto";
 import { z } from "zod";
+import nodemailer from "nodemailer";
 
 const VALID_RENTAL_DURATIONS = [1, 6, 12, 24] as const;
 const PRICING = {
@@ -38,12 +39,29 @@ const envSchema = z.object({
   API_SECRET: z.string().default("dev-secret"),
   FRONTEND_URL: z.string().default("http://localhost:3000"),
   NOTIFICATION_WEBHOOK_URL: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
 });
 
 const env = envSchema.parse(process.env);
 
 // Stripe setup
 const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: "2025-02-24.acacia" }) : null;
+const mailer = env.SMTP_HOST && env.SMTP_PORT && env.SMTP_USER && env.SMTP_PASS
+  ? nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port: parseInt(env.SMTP_PORT, 10),
+      secure: env.SMTP_SECURE === "true",
+      auth: {
+        user: env.SMTP_USER,
+        pass: env.SMTP_PASS,
+      },
+    })
+  : null;
 
 type Variables = {
   userId: string;
@@ -98,6 +116,28 @@ function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+async function issueSession(userId: string): Promise<string> {
+  const token = randomUUID();
+  await redis.setex(`session:${token}`, 86400 * 30, userId);
+  await redis.setex(`magic-session:${token}`, 86400 * 30, userId);
+  return token;
+}
+
+async function sendMagicLink(email: string, token: string): Promise<void> {
+  if (!mailer) {
+    throw new Error("SMTP is not configured");
+  }
+
+  const link = `${env.FRONTEND_URL}/auth/callback?token=${encodeURIComponent(token)}`;
+  await mailer.sendMail({
+    from: env.SMTP_FROM || env.SMTP_USER,
+    to: email,
+    subject: "Your AnixOps sign-in link",
+    text: `Sign in to AnixOps: ${link}`,
+    html: `<p>Sign in to AnixOps:</p><p><a href="${link}">${link}</a></p>`,
+  });
+}
+
 // ============================================================
 // Health
 // ============================================================
@@ -116,6 +156,57 @@ app.get("/health", async (c) => {
 // ============================================================
 // Auth
 // ============================================================
+app.post("/api/auth/request-link", async (c) => {
+  const { email } = await c.req.json();
+  if (!email || !validateEmail(email)) {
+    return c.json({ error: "Invalid email format" }, 400);
+  }
+
+  const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const userId = existing[0]?.id || randomUUID();
+
+  if (existing.length === 0) {
+    await db.insert(users).values({ id: userId, email, balance: 0 });
+  }
+
+  const magicToken = randomUUID();
+  await redis.setex(`magic:${magicToken}`, 900, userId);
+  await sendMagicLink(email, magicToken);
+
+  return c.json({ sent: true });
+});
+
+app.post("/api/auth/verify", async (c) => {
+  const { token } = await c.req.json();
+  if (!token || typeof token !== "string") {
+    return c.json({ error: "Invalid token" }, 400);
+  }
+
+  const userId = await redis.get(`magic:${token}`);
+  if (!userId) {
+    return c.json({ error: "Magic link is invalid or expired" }, 401);
+  }
+
+  await redis.del(`magic:${token}`);
+
+  const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (user.length === 0) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const sessionToken = await issueSession(userId);
+  return c.json({ userId, token: sessionToken, email: user[0].email });
+});
+
+app.get("/api/auth/me", verifyAuth, async (c) => {
+  const userId = c.get("userId");
+  const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (user.length === 0) {
+    return c.json({ error: "User not found" }, 404);
+  }
+  return c.json({ userId: user[0].id, email: user[0].email });
+});
+
 app.post("/api/auth/register", async (c) => {
   const { email } = await c.req.json();
   if (!email || !validateEmail(email)) {
@@ -125,16 +216,14 @@ app.post("/api/auth/register", async (c) => {
   // Check if user exists
   const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing.length > 0) {
-    const token = randomUUID();
-    await redis.setex(`session:${token}`, 86400 * 30, existing[0].id);
+    const token = await issueSession(existing[0].id);
     return c.json({ userId: existing[0].id, token, email, exists: true });
   }
 
   const userId = randomUUID();
   await db.insert(users).values({ id: userId, email, balance: 0 });
 
-  const token = randomUUID();
-  await redis.setex(`session:${token}`, 86400 * 30, userId);
+  const token = await issueSession(userId);
 
   return c.json({ userId, token, email });
 });
@@ -150,8 +239,7 @@ app.post("/api/auth/login", async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  const token = randomUUID();
-  await redis.setex(`session:${token}`, 86400 * 30, user[0].id);
+  const token = await issueSession(user[0].id);
 
   return c.json({ userId: user[0].id, token });
 });

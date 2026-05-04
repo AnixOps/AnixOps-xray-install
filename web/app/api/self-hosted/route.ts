@@ -26,10 +26,31 @@ function deployLog(level: "info" | "warn" | "error", deployId: string, message: 
 
 // Initialize cleanup on first load
 cleanupDeployments();
+const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_WORKER_URL || "http://127.0.0.1:8787";
+
+async function requireUser(request: Request) {
+  const auth = request.headers.get("Authorization");
+  if (!auth || !auth.startsWith("Bearer ")) {
+    return null;
+  }
+  const res = await fetch(`${API_URL}/api/auth/me`, {
+    headers: { Authorization: auth },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    return null;
+  }
+  return res.json();
+}
 
 // Self-hosted deployment API
 export async function POST(request: Request) {
   try {
+    const user = await requireUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { deployMethod, protocol, domain, dnsToken } = body;
 
@@ -94,9 +115,8 @@ export async function POST(request: Request) {
 
 // List all active deployments (requires auth token)
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("Authorization");
-  const expectedToken = process.env.SELF_HOSTED_API_TOKEN;
-  if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
+  const user = await requireUser(request);
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

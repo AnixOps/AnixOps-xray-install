@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDeployStore } from "@/lib/deploy/store";
 import { useAuthStore } from "@/lib/auth/store";
@@ -8,7 +9,7 @@ import type { AppMode } from "@/lib/deploy/types";
 import { SelfHostedWizard } from "@/components/self-hosted/SelfHostedWizard";
 import { RentalWizard } from "@/components/rental/RentalWizard";
 import { RentalDashboard } from "@/components/rental/RentalDashboard";
-import { Card, Badge } from "@/components/ui";
+import { Button, Card, Badge } from "@/components/ui";
 
 export default function Home() {
   const mode = useDeployStore((s) => s.mode);
@@ -20,7 +21,7 @@ export default function Home() {
   const token = useAuthStore((s) => s.token);
 
   if (mode === "self-hosted") {
-    return <AppLayout><SelfHostedWizard /></AppLayout>;
+    return <AppLayout>{token ? <SelfHostedWizard /> : <SelfHostedAuthGate />}</AppLayout>;
   }
 
   if (mode === "rental" && rentalStatus === "active" && rentalId) {
@@ -45,6 +46,58 @@ export default function Home() {
     <AppLayout>
       <ModeSelection onSelect={setMode} />
     </AppLayout>
+  );
+}
+
+function SelfHostedAuthGate() {
+  const { t } = useLocaleStore();
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const sendLink = async () => {
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/auth/request-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setMessage(t("auth.magicLink.sent"));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("common.error.generic"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="p-6 space-y-4">
+      <h2 className="text-lg font-semibold">{t("auth.magicLink.title")}</h2>
+      <p className="text-sm text-muted-foreground">{t("auth.magicLink.desc")}</p>
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder={t("rental.emailPlaceholder")}
+        className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+      />
+      {message && <p className="text-sm text-green-600">{message}</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="flex justify-end">
+        <Button disabled={!email || loading} onClick={sendLink}>
+          {loading ? t("common.processing") : t("auth.magicLink.send")}
+        </Button>
+      </div>
+    </Card>
   );
 }
 
