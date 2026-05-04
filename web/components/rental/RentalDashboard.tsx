@@ -36,6 +36,7 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
   const [showRenew, setShowRenew] = useState(false);
   const [renewPlan, setRenewPlan] = useState<(typeof RENTAL_PLANS)[number] | null>(null);
   const [subscription, setSubscription] = useState<string | null>(null);
+  const [subscriptionFormat, setSubscriptionFormat] = useState<"universal" | "raw">("universal");
   const { t, tPlan } = useLocaleStore();
   const { showToast } = useToast();
   const router = useRouter();
@@ -175,17 +176,28 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
     setLoading(false);
   };
 
-  const handleLoadSubscription = async () => {
+  const handleLoadSubscription = async (format: "universal" | "raw" = "universal") => {
     try {
-      const res = await workerFetch(`/api/rental/${rental.id}/subscription`, {
+      const res = await workerFetch(`/api/rental/${rental.id}/subscription?format=${format}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
-      if (data.error) {
-        showToast(data.error, "error");
-        return;
+      if (format === "raw") {
+        const text = await res.text();
+        if (!res.ok) {
+          showToast(text || t("common.error.generic"), "error");
+          return;
+        }
+        setSubscriptionFormat(format);
+        setSubscription(text);
+      } else {
+        const data = await res.json();
+        if (data.error) {
+          showToast(data.error, "error");
+          return;
+        }
+        setSubscriptionFormat(format);
+        setSubscription(data.subscription || null);
       }
-      setSubscription(data.subscription || null);
     } catch {
       showToast(t("common.error.generic"), "error");
     }
@@ -278,13 +290,31 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
           <Button
             variant="outline"
             className="w-full"
-            onClick={handleLoadSubscription}
+            onClick={() => handleLoadSubscription("universal")}
           >
-            Subscription
+            {t("subscription.title")}
           </Button>
           {subscription && (
-            <div className="rounded-lg bg-muted/50 p-4 font-mono text-xs break-all">
-              {subscription}
+            <div className="space-y-3 rounded-lg bg-muted/50 p-4">
+              <div className="flex flex-wrap gap-2">
+                <Button variant={subscriptionFormat === "universal" ? "default" : "outline"} size="sm" onClick={() => handleLoadSubscription("universal")}>
+                  {t("subscription.format.universal")}
+                </Button>
+                <Button variant={subscriptionFormat === "raw" ? "default" : "outline"} size="sm" onClick={() => handleLoadSubscription("raw")}>
+                  {t("subscription.format.raw")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(subscription);
+                    showToast(t("common.copied"), "success");
+                  }}
+                >
+                  {t("subscription.copy")}
+                </Button>
+              </div>
+              <div className="font-mono text-xs break-all">{subscription}</div>
             </div>
           )}
         </Card>

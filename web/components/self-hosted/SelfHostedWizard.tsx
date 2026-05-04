@@ -82,6 +82,36 @@ export function SelfHostedWizard() {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">✓</div>
           <h2 className="text-2xl font-bold text-green-700">{t("selfhosted.success")}</h2>
         </div>
+        <div className="rounded-lg bg-muted/40 p-4 text-sm space-y-2">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("selfhosted.summary.protocol")}</span>
+            <span>{String(config.protocol ?? "")}</span>
+          </div>
+          {config.ip && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t("selfhosted.summary.connection")}</span>
+              <span className="font-mono text-xs">{String(config.ip)}:{String(config.port ?? "")}</span>
+            </div>
+          )}
+          {config.cleanupAt && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t("selfhosted.summary.cleanupAt")}</span>
+              <span>{String(config.cleanupAt)}</span>
+            </div>
+          )}
+          {config.cleanupMode && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t("selfhosted.summary.cleanupMode")}</span>
+              <span>{String(config.cleanupMode)}</span>
+            </div>
+          )}
+          {config.cleanupTimerName && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t("selfhosted.summary.cleanupTimer")}</span>
+              <span className="font-mono text-xs">{String(config.cleanupTimerName)}</span>
+            </div>
+          )}
+        </div>
         <div className="space-y-2 text-sm">
           {Object.entries(config).map(([key, value]) => (
             <div key={key} className="flex justify-between">
