@@ -1,7 +1,8 @@
 import { NodeSSH } from "node-ssh";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { generateKeyPairSync, randomBytes, randomUUID, type KeyObject } from "crypto";
+import { fileURLToPath } from "url";
 import type { CloudProvider } from "./provider.js";
 import { createVultrProvider } from "./providers/vultr.js";
 import { createDOProvider } from "./providers/digitalocean.js";
@@ -9,7 +10,8 @@ import { createAWSProvider } from "./providers/aws.js";
 import { logger } from "./logger.js";
 
 const CLOUD_PROVIDER = process.env.CLOUD_PROVIDER || "vultr";
-const SSH_KEY_DIR = join(__dirname, process.env.NODE_ENV === "production" ? "../.ssh" : "../../.ssh");
+const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
+const SSH_KEY_DIR = join(CURRENT_DIR, process.env.NODE_ENV === "production" ? "../.ssh" : "../../.ssh");
 const SSH_KEY_PATH = join(SSH_KEY_DIR, "anixops_ed25519");
 
 function getProvider(): CloudProvider {
@@ -149,7 +151,7 @@ async function deployProtocol(ip: string, protocol: string, privateKey: string):
 
     const scriptPath = process.env.SCRIPT_DIR
       ? `${process.env.SCRIPT_DIR}/${protocol}.sh`
-      : join(__dirname, process.env.NODE_ENV === "production" ? `../scripts/${protocol}.sh` : `../../scripts/${protocol}.sh`);
+      : join(CURRENT_DIR, process.env.NODE_ENV === "production" ? `../scripts/${protocol}.sh` : `../../scripts/${protocol}.sh`);
     const script = readFileSync(scriptPath, "utf-8");
 
     const tmpScript = `/tmp/anixops-install.sh`;
@@ -187,7 +189,7 @@ async function deployProtocol(ip: string, protocol: string, privateKey: string):
 
     const scriptPath = process.env.SCRIPT_DIR
       ? `${process.env.SCRIPT_DIR}/hysteria2.sh`
-      : join(__dirname, "../../scripts/hysteria2.sh");
+      : join(CURRENT_DIR, process.env.NODE_ENV === "production" ? "../scripts/hysteria2.sh" : "../../scripts/hysteria2.sh");
     const script = readFileSync(scriptPath, "utf-8");
 
     const tmpScript = `/tmp/anixops-install.sh`;

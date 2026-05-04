@@ -4,11 +4,13 @@ import { createDOProvider } from "./providers/digitalocean.js";
 import { createAWSProvider } from "./providers/aws.js";
 import { NodeSSH } from "node-ssh";
 import { readFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { logger } from "./logger.js";
 
 const CLOUD_PROVIDER = process.env.CLOUD_PROVIDER || "vultr";
-const SSH_KEY_PATH = join(__dirname, process.env.NODE_ENV === "production" ? "../.ssh/anixops_ed25519" : "../../.ssh/anixops_ed25519");
+const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
+const SSH_KEY_PATH = join(CURRENT_DIR, process.env.NODE_ENV === "production" ? "../.ssh/anixops_ed25519" : "../../.ssh/anixops_ed25519");
 
 function getProvider(): CloudProvider {
   switch (CLOUD_PROVIDER) {
@@ -105,7 +107,7 @@ async function runCleanup(ip: string, rentalId: string): Promise<void> {
   });
 
   // Upload and run destroy script from local scripts/ directory
-  const destroyScriptPath = join(__dirname, process.env.NODE_ENV === "production" ? "../scripts/destroy.sh" : "../../scripts/destroy.sh");
+  const destroyScriptPath = join(CURRENT_DIR, process.env.NODE_ENV === "production" ? "../scripts/destroy.sh" : "../../scripts/destroy.sh");
   try {
     const destroyScript = readFileSync(destroyScriptPath, "utf-8");
     await ssh.execCommand(`cat > /tmp/anixops-destroy.sh << 'SCRIPT'\n${destroyScript}\nSCRIPT`);
