@@ -12,7 +12,8 @@ export async function GET(
   }
 
   const token = request.headers.get("Authorization");
-  const apiUrl = `${process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:8787"}/api/rental/${id}/config`;
+  const apiBase = process.env.API_URL || process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:8787";
+  const apiUrl = `${apiBase}/api/rental/${id}/config`;
   let res: Response;
   try {
     res = await fetch(apiUrl, {
@@ -24,8 +25,12 @@ export async function GET(
   }
 
   if (!res.ok) {
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    const text = await res.text();
+    try {
+      return NextResponse.json(JSON.parse(text), { status: res.status });
+    } catch {
+      return NextResponse.json({ error: text || "Upstream request failed" }, { status: res.status });
+    }
   }
 
   const rawConfig = await res.json();
