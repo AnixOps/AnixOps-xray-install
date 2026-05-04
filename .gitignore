@@ -63,6 +63,9 @@ server/node_modules/
 .docker/
 docker-data/
 
+# local tool config
+.claude/
+
 # local machine / remote access secrets
 ssh.txt
 
