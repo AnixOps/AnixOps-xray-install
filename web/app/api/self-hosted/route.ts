@@ -835,6 +835,10 @@ async function installCleanupTimerWithPassword(
   const scriptPath = process.cwd() + "/scripts/destroy.sh";
   const { readFileSync } = await import("fs");
   const cleanupScript = readFileSync(scriptPath, "utf-8");
+  const cleanupCalendar = cleanupAt
+    .replace("T", " ")
+    .replace(/\.\d{3}Z$/, " UTC")
+    .replace(/Z$/, " UTC");
 
   try {
     await ssh.execCommand("mkdir -p /usr/local/lib/anixops /var/lib/anixops");
@@ -857,7 +861,7 @@ EOF`
 Description=AnixOps cleanup timer ${deployId}
 
 [Timer]
-OnCalendar=${cleanupAt}
+OnCalendar=${cleanupCalendar}
 Persistent=true
 Unit=${serviceName}
 
