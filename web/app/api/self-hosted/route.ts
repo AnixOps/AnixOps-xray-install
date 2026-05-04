@@ -176,12 +176,24 @@ async function deployAsync(
         deployLog("info", deployId, "DNS record created");
       }
 
+      // Step 4: Install automatic local cleanup timer on user-owned server
+      const cleanupAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      deployLog("info", deployId, `Scheduling local cleanup for ${cleanupAt}...`);
+      const cleanupMeta = await installCleanupTimerWithPassword(ip, sshPort, sshPassword, deployId, cleanupAt);
+      deployLog("info", deployId, "Local cleanup timer installed");
+
       // Complete
       deployments.set(deployId, {
         ...deployments.get(deployId)!,
         status: "success",
         progress: 100,
-        config: result,
+        config: {
+          ...result,
+          cleanupAt,
+          cleanupMode: "local-timer",
+          cleanupServiceName: cleanupMeta.serviceName,
+          cleanupTimerName: cleanupMeta.timerName,
+        },
       });
       deployLog("info", deployId, "Deployment complete!");
       return;
@@ -806,6 +818,61 @@ async function verifyRemoteState(ssh: NodeSSH, config: Record<string, string>): 
       throw new Error("Hysteria2 deployment failed: UDP port 443 is not listening");
     }
   }
+}
+
+async function installCleanupTimerWithPassword(
+  ip: string,
+  port: number,
+  sshPassword: string,
+  deployId: string,
+  cleanupAt: string
+): Promise<{ serviceName: string; timerName: string }> {
+  const ssh = new NodeSSH();
+  await ssh.connect({ host: ip, port, username: "root", password: sshPassword });
+
+  const serviceName = `anixops-cleanup-${deployId}.service`;
+  const timerName = `anixops-cleanup-${deployId}.timer`;
+  const scriptPath = process.cwd() + "/scripts/destroy.sh";
+  const { readFileSync } = await import("fs");
+  const cleanupScript = readFileSync(scriptPath, "utf-8");
+
+  try {
+    await ssh.execCommand("mkdir -p /usr/local/lib/anixops /var/lib/anixops");
+    await ssh.execCommand(`cat > /usr/local/lib/anixops/cleanup-${deployId}.sh << 'SCRIPT'\n${cleanupScript}\nSCRIPT`);
+    await ssh.execCommand(`chmod +x /usr/local/lib/anixops/cleanup-${deployId}.sh`);
+    await ssh.execCommand(
+      `cat > /etc/systemd/system/${serviceName} << 'EOF'
+[Unit]
+Description=AnixOps cleanup ${deployId}
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/lib/anixops/cleanup-${deployId}.sh
+ExecStartPost=/bin/sh -c 'printf "{\\"deployId\\":\\"${deployId}\\",\\"cleanupAt\\":\\"${cleanupAt}\\",\\"cleanedAt\\":\\"$(date -Is)\\"}\\n" > /var/lib/anixops/cleanup-${deployId}.json'
+EOF`
+    );
+    await ssh.execCommand(
+      `cat > /etc/systemd/system/${timerName} << 'EOF'
+[Unit]
+Description=AnixOps cleanup timer ${deployId}
+
+[Timer]
+OnCalendar=${cleanupAt}
+Persistent=true
+Unit=${serviceName}
+
+[Install]
+WantedBy=timers.target
+EOF`
+    );
+    await ssh.execCommand("systemctl daemon-reload");
+    await ssh.execCommand(`systemctl enable ${timerName}`);
+    await ssh.execCommand(`systemctl restart ${timerName}`);
+  } finally {
+    ssh.dispose();
+  }
+
+  return { serviceName, timerName };
 }
 
 // Cloudflare DNS record creation
