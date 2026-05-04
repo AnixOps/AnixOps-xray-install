@@ -319,6 +319,12 @@ app.post("/api/rental", verifyAuth, async (c) => {
   return c.json({ rentalId, totalPrice: tier.totalPrice, status: "provisioning" });
 });
 
+app.get("/api/payments", verifyAuth, async (c) => {
+  const userId = c.get("userId");
+  const userPayments = await db.select().from(payments).where(eq(payments.userId, userId)).orderBy(desc(payments.createdAt));
+  return c.json({ payments: userPayments });
+});
+
 app.get("/api/rentals", verifyAuth, async (c) => {
   const userId = c.get("userId");
   const userRentals = await db.select().from(rentals).where(eq(rentals.userId, userId)).orderBy(desc(rentals.createdAt));
