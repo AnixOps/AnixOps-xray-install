@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import type { CloudProvider, VPSInfo } from "../provider";
+import type { CloudProvider, VPSInfo } from "../provider.js";
 
 export function createDOProvider(apiKey: string): CloudProvider {
   const baseUrl = "https://api.digitalocean.com/v2";

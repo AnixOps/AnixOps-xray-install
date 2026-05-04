@@ -1,5 +1,5 @@
 import { EC2, type RunInstancesCommandInput, type DescribeInstancesCommandInput, type _InstanceType } from "@aws-sdk/client-ec2";
-import type { CloudProvider, VPSInfo } from "../provider";
+import type { CloudProvider, VPSInfo } from "../provider.js";
 
 // Ubuntu 22.04 LTS AMIs per region (official, HVM, SSD)
 const UBUNTU_AMI: Record<string, string> = {

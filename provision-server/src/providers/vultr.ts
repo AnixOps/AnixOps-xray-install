@@ -1,4 +1,4 @@
-import type { CloudProvider, VPSInfo } from "../provider";
+import type { CloudProvider, VPSInfo } from "../provider.js";
 
 export function createVultrProvider(apiKey: string): CloudProvider {
   const baseUrl = "https://api.vultr.com/v2";

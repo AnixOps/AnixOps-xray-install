@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
-import { provisionNode } from "./provision";
-import { destroyNode } from "./destroy";
+import { provisionNode } from "./provision.js";
+import { destroyNode } from "./destroy.js";
 
 // Startup validation - fail fast if required env vars are missing
 const provider = process.env.CLOUD_PROVIDER || "vultr";

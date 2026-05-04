@@ -2,11 +2,11 @@ import { NodeSSH } from "node-ssh";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { generateKeyPairSync, randomBytes, randomUUID, type KeyObject } from "crypto";
-import type { CloudProvider } from "./provider";
-import { createVultrProvider } from "./providers/vultr";
-import { createDOProvider } from "./providers/digitalocean";
-import { createAWSProvider } from "./providers/aws";
-import { logger } from "./logger";
+import type { CloudProvider } from "./provider.js";
+import { createVultrProvider } from "./providers/vultr.js";
+import { createDOProvider } from "./providers/digitalocean.js";
+import { createAWSProvider } from "./providers/aws.js";
+import { logger } from "./logger.js";
 
 const CLOUD_PROVIDER = process.env.CLOUD_PROVIDER || "vultr";
 const SSH_KEY_DIR = join(__dirname, process.env.NODE_ENV === "production" ? "../.ssh" : "../../.ssh");
