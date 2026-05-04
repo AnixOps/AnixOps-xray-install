@@ -176,6 +176,7 @@ export default function AdminPage() {
     if (!token) return;
     const res = await workerFetch("/api/admin/redeem-codes", {
       headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
     });
     const data = await res.json();
     if (!res.ok || data.error) {
@@ -188,6 +189,7 @@ export default function AdminPage() {
     if (!token) return;
     const res = await workerFetch("/api/admin/overview", {
       headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
     });
     const data = await res.json();
     if (!res.ok || data.error) {
@@ -218,6 +220,7 @@ export default function AdminPage() {
     try {
       const res = await workerFetch(`/api/admin/rentals/${rentalId}`, {
         headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -296,7 +299,7 @@ export default function AdminPage() {
         await navigator.clipboard?.writeText(generated);
       }
       showToast(`Generated ${data.count} code(s)`, "success");
-      await loadAll();
+      await loadAll(true);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to generate redeem codes", "error");
     } finally {
@@ -314,6 +317,7 @@ export default function AdminPage() {
     try {
       const res = await workerFetch(`/api/admin/search?q=${encodeURIComponent(searchQuery.trim())}`, {
         headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -359,6 +363,21 @@ export default function AdminPage() {
     );
   };
 
+  const applyCodeUpdate = (updatedCode: RedeemCodeRow["redeem_codes"]) => {
+    setCodes((current) =>
+      current.map((row) =>
+        row.redeem_codes.id === updatedCode.id
+          ? { ...row, redeem_codes: updatedCode }
+          : row,
+      ),
+    );
+  };
+
+  const removeCodesFromState = (ids: string[]) => {
+    setCodes((current) => current.filter((row) => !ids.includes(row.redeem_codes.id)));
+    setSelectedCodeIds((current) => current.filter((id) => !ids.includes(id)));
+  };
+
   const handleUpdateCode = async () => {
     if (!token || !editingCodeId) return;
     try {
@@ -377,9 +396,12 @@ export default function AdminPage() {
       if (!res.ok || data.error) {
         throw new Error(data.error || "Failed to update redeem code");
       }
+      if (data.code) {
+        applyCodeUpdate(data.code);
+      }
       showToast("Redeem code updated", "success");
       setEditingCodeId(null);
-      await loadAll();
+      await loadAll(true);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to update redeem code", "error");
     }
@@ -397,9 +419,9 @@ export default function AdminPage() {
       if (!res.ok || data.error) {
         throw new Error(data.error || "Failed to delete redeem code");
       }
+      removeCodesFromState([row.redeem_codes.id]);
       showToast("Redeem code deleted", "success");
-      setSelectedCodeIds((current) => current.filter((id) => id !== row.redeem_codes.id));
-      await loadAll();
+      await loadAll(true);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to delete redeem code", "error");
     }
@@ -435,9 +457,9 @@ export default function AdminPage() {
           throw new Error(data.error || `Failed to delete redeem code ${id}`);
         }
       }
+      removeCodesFromState(selectedCodeIds);
       showToast(`Deleted ${selectedCodeIds.length} redeem code(s)`, "success");
-      setSelectedCodeIds([]);
-      await loadAll();
+      await loadAll(true);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to delete selected redeem codes", "error");
     } finally {
