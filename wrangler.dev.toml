@@ -1,0 +1,38 @@
+# Local development bindings
+name = "anixops-api"
+main = "web/workers/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Local D1 (auto-created on first wrangler dev)
+[[d1_databases]]
+binding = "DB"
+database_name = "anixops"
+database_id = "local-anixops"
+
+# Local KV (in-memory)
+[[kv_namespaces]]
+binding = "CACHE"
+id = "local-cache"
+preview_id = "local-cache-preview"
+
+# Local Queue (in-memory)
+[[queues.producers]]
+queue = "provision-tasks"
+binding = "PROVISION_QUEUE"
+
+[[queues.consumers]]
+queue = "provision-tasks"
+max_batch_size = 1
+max_retries = 3
+
+# Dev vars
+[vars]
+PROVISION_SERVER_URL = "http://127.0.0.1:3001"
+PROVISION_SERVER_TOKEN = "dev-token-change-in-prod"
+STRIPE_SECRET_KEY = "sk_test_dev"
+STRIPE_WEBHOOK_SECRET = "whsec_dev"
+
+# Cron triggers
+[triggers]
+crons = ["* * * * *"]

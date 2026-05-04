@@ -1,0 +1,13 @@
+node_modules
+.next
+dist
+.git
+.claude
+*.md
+.env*
+!.env.example
+.vercel
+output
+coverage
+*.log
+.DS_Store

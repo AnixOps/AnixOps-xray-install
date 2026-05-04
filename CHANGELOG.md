@@ -1,0 +1,227 @@
+# Changelog
+
+All notable changes to AnixOps will be documented in this file.
+
+## [Unreleased]
+
+### Cleanup
+- 消除所有 `catch (e: any)`: SelfHostedWizard, RentalWizard, server.ts (provision/destroy handlers) → 改用 `catch (e: unknown)` + `instanceof Error`
+- self-hosted/route.ts: DigitalOcean 网络轮询 `(n: any)` → `{ type: string; ip_address: string }` 内联类型
+- Provision server: `server.listen()` 仅在 `NODE_ENV !== "test"` 时启动, 导出 `server` 供 Fastify inject 测试
+- 移除 provision-server/src/server.ts 中遗留的 `// ...` 注释
+- Worker cron 处理器: `cronLog` 改为直接输出 JSON 结构化日志 (`{ level, ts, msg, src, ...meta }`)
+- Provision server: `console.log` → `server.log.info` (使用 Fastify 结构化日志)
+- 移除 `verifyAuth` 中未使用的 `db` 变量
+- Worker middleware: `rateLimit` 和 `verifyAuth` 使用 `Context<{ Bindings: Bindings }>` 替代 `any`
+- 移除 `as any` 类型断言: route.ts 和 SelfHostedWizard.tsx 改用 const array 迭代
+- 全面消除 `as any`: workers/index.ts (15+ 处 D1 查询结果添加 `RentalRow`/`UserRow`/`ExpiringRentalRow` 接口), db.ts (`updateRentalStatus` extra 参数强类型化), 三个云提供商文件 (vultr.ts/digitalocean.ts/aws.ts 用具体接口替代 `Promise<any>`), destroy.ts (SSH 返回值替代 `as any`), self-hosted/route.ts (catch error/网络回调找类型), server.ts (authenticate 用 `FastifyRequest`/`FastifyReply`/`preHandlerHookHandler` 替代回调参数 `any`)
+- 移除根 package.json 中未使用的依赖: `@aws-sdk/client-ec2`, `@vultr/vultr-node`, `digitalocean`, `uuid`, `@types/uuid`
+
+### i18n
+- error.tsx: `"Something went wrong"` / `"Try again"` → `t("error.title")` / `t("error.retry")`
+- RentalDashboard clientLabels: `"Clash Meta"` 等 → `t("client.*")` 国际化
+- RentalWizard: `"Request failed"` → `t("common.error.generic")`
+- SelfHostedWizard: 移除对不存在的 `planInfo?.price` 的引用
+
+### Bug Fixes
+- **provision.ts 模板字符串 bug**: `join(__dirname, "../../scripts/${protocol}.sh")` → 使用反引号模板字面量, 否则 `${protocol}` 不会被插值, 脚本路径永远找不到
+- billing.ts: 最后 2 处 `as any` 消除 — `existingUser.first<UserRow>()` 和 `(rental as RentalRow).protocol`
+- layout.tsx: Next.js 15 `cookies()` 返回 Promise, `RootLayout` 改为 async + await
+- aws.ts: `InstanceType` → `_InstanceType` (AWS SDK 实际导出名)
+- Worker CORS: `process.env.ALLOWED_ORIGINS` → `c.env.ALLOWED_ORIGINS` (Cloudflare Workers don't have `process.env`, env vars come through wrangler.toml bindings)
+- wrangler.toml: 新增 `ALLOWED_ORIGINS` var (默认 `http://localhost:3000`)
+- 移除 `RENTAL_PLANS` 中未使用的 `label` 字段 (已迁移至 i18n `tPlan()`)
+- Provision server health endpoint 现在验证所有云提供商环境变量
+- Provision server 启动验证添加 DigitalOcean (`DIGITALOCEAN_TOKEN`)
+- PROVIDER_INFO: 区域名称和价格全面接入 i18n (`nameKey`/`priceKey` 替代硬编码中文)
+- SelfHostedWizard: 区域选择/审核使用 `t(r.nameKey)` / `t(p.priceKey)` 翻译
+- SelfHostedWizard: step label 使用 i18n key 而非硬编码中文 (`s.label` → `t(s.label)`)
+- RentalDashboard: 协议标签硬编码中文 → `t("protocol.*")`
+- RentalDashboard: `alert("Renewal failed")` → `t("rental.deployFailed")`
+- RentalWizard: PROTOCOL_INFO 全面接入 i18n (`nameKey`/`descKey`/`priceKey` 替代硬编码中英文)
+- SelfHostedWizard: 协议选择区域/审核区域全面使用 `t(PROTOCOL_INFO[key].*)` 翻译
+- vless-reality.sh 输出: `公钥:` → `PUBLIC_KEY=` (稳定英文分隔符, 避免 locale 依赖)
+- provision.ts / self-hosted/route.ts: SSH 脚本输出解析改用 `PUBLIC_KEY=` 替代 `公钥:` 正则
+- Queue consumer: destroy fetch 现在检查响应状态码, 失败时 `message.retry()`
+- Queue consumer: provision JSON parse 添加 try/catch, 避免解析失败导致整个 batch 崩溃
+- 配置生成器: v2rayN `serviceName` 去掉 gRPC 路径前导 `/` (v2rayN 规范)
+- page.tsx: 语言切换按钮硬编码 "EN"/"中文" → `t("common.lang.*")`
+
+### Added
+- Provision server 集成测试 (Fastify `server.inject`): 健康检查端点、认证中间件、输入验证 (5 tests)
+- Auth store 单元测试: 状态初始化、localStorage 持久化、登出清理、恢复 (5 tests)
+- 双模式支持: 自托管 (免费) + 按租 (付费)
+- VLESS + Reality + gRPC 协议自动化安装
+- Hysteria2 协议自动化安装
+- Cloudflare Pages 前端 (Next.js SSG)
+- Cloudflare Workers API (Hono 框架)
+- 按租模式完整功能:
+  - 用户注册/登录 (邮箱 + session token, localStorage 持久化)
+  - 协议选择 (VLESS Reality / Hysteria2)
+  - 时长选择 (1h/6h/12h/24h)
+  - Stripe 支付集成 (完整 SDK + webhook 验证 + payment 记录)
+  - 实时倒计时管理面板 (含协议切换、暂停/恢复/销毁)
+  - 多客户端配置生成 (Clash Meta, Sing-box, V2RayN, Shadowrocket)
+  - 客户端配置格式化 API (`/api/rental/:id/config/:client`)
+- 自托管模式完整功能:
+  - 云供应商选择 (Vultr, DigitalOcean, AWS)
+  - 区域/规格选择 (自动随供应商切换)
+  - 实际 SSH 部署 + 脚本执行 (ed25519 密钥认证)
+  - SSH 密钥自动生成 + Vultr/DigitalOcean API 注册
+  - DigitalOcean IP 轮询等待
+  - 进度轮询 (通过 `/api/self-hosted/:id`)
+  - VLESS Reality 无需域名即可部署
+  - 共享部署状态 (修复了轮询 404 问题)
+- Cloudflare D1 数据库 (rentals, users, payments, audit_log)
+- Cloudflare KV 缓存 (session tokens, 节点配置)
+- Cloudflare Queues (异步部署任务)
+- Cron Worker (每分钟检查到期租约自动销毁, 续费提醒, 清理归档)
+- 速率限制 (@fastify/rate-limit: 10 req/min)
+- 知识库文档 (协议对比、速度调优、客户端教程)
+- 配置生成器单元测试
+- Provision Server 多云提供商抽象 (Vultr / DigitalOcean / AWS)
+- i18n 多语言支持 (中文/英文)
+- 前端 auth store (localStorage 持久化 token)
+- Payment 记录表 (Stripe 和免费试用都写入 payments 表)
+- 完整 npm scripts (worker:dev, worker:deploy, pages:deploy, provision:dev)
+- wrangler.dev.toml 本地开发配置
+- 多阶段 Dockerfile (非 root 用户运行)
+- docker-compose.yml 本地开发环境
+- 一键部署脚本 (deploy.sh)
+- 邮箱验证 (正则 + register 自动登录已注册用户)
+- D1 触发器 (自动更新 updated_at)
+- Next.js standalone 输出模式 (优化 Docker 体积)
+- 完整 i18n 多语言支持 (zh/en):
+  - 扩展翻译密钥覆盖所有 UI 文本
+  - 新增 locale Zustand store (localStorage 持久化)
+  - 新增 useTranslation hook
+  - RentalWizard, RentalDashboard, SelfHostedWizard, page.tsx 全部接入翻译
+  - 头部语言切换按钮 (中文/EN)
+- 续费功能:
+  - POST /api/rental/:id/renew 端点 (延长 expires_at, 写入 payments 记录)
+  - RentalDashboard 续费弹窗 (选时长, 确认支付)
+  - 替换原 "切换协议" 占位按钮为续费按钮
+- 完整 Stripe 续费支付流程:
+  - POST /api/payment/renew — 创建 Stripe checkout session
+  - Webhook 处理 renewal 类型 session (延长 expires_at, 写入 payments, 审计日志)
+  - web/app/rental/success/page.tsx — 支付成功页 (含 renewal 检测)
+  - web/app/rental/cancel/page.tsx — 支付取消页
+  - GET /api/rental/session/:sessionId — session 状态查询端点
+- 前端续费流程改为 Stripe redirect (不再模拟支付)
+- API 客户端: web/lib/api/client.ts — 集中化 Worker API 调用 (支持 NEXT_PUBLIC_WORKER_URL)
+- .env.example 新增 NEXT_PUBLIC_WORKER_URL (本地开发指向 http://127.0.0.1:8787)
+- Destroy 流程完善:
+  - provision-server/src/destroy.ts 完整实现 (SSH 运行 destroy.sh + VPS 删除)
+  - Worker queue 传递 vpsId 和 ip 给 provision server (避免 null 查找)
+  - cron 自动销毁也传递 vpsId/ip
+  - server.ts /api/destroy 接收 vpsId/ip 参数
+- TypeScript 修复:
+  - crypto.randomBytes → randomBytes (node:crypto 导入) 在 provision.ts 和 self-hosted/route.ts
+  - SSHExecCommandOptions.timeout 移除 (非 node-ssh API)
+  - 修复 setProvider/setProtocol 类型 (显式 union type 替代 typeof null)
+  - vitest 加入 devDependencies, 2 tests passing
+- TypeScript 清理:
+  - 修复 provider 导入路径: providers/*.ts 中 `./provider` → `../provider`
+  - server.ts: protocol 字符串显式 cast 为 union type 传给 provisionNode
+  - billing.ts: Stripe API 版本 `2025-01-27.acacia` → `2025-02-24.acacia`
+  - tsconfig.json: 排除 web/workers 和 provision-server (Cloudflare 运行时类型不与标准 tsconfig 兼容)
+  - 安装 @cloudflare/workers-types
+  - **零 TypeScript 错误** (web/app/components/lib 完全通过)
+- provision-server: npm install 完成, 0 vulnerabilities
+- 支付历史入口:
+  - 头部导航添加支付历史按钮 (仅租凭模式 + 已登录可见)
+  - RentalDashboard 隐私区域底部添加支付历史链接
+  - i18n 新增 `payment.history` / `payment.empty` 翻译键
+- Bug 修复: Hono 路由 `c.req.param("id")` → `c.req.param("sessionId")` (session 查询端点参数名不匹配)
+- 续期提醒通知系统:
+  - Cron 到期检查现在实际发送提醒 (< 30 min 剩余)
+  - 支持 Telegram Bot API 和通用 Webhook 两种格式
+  - 查询 JOIN users 表获取用户邮箱, 自动去重 (CACHE 10min TTL)
+  - NOTIFICATION_WEBHOOK_URL 为可选环境变量, 未配置时不发送
+- 前端错误处理:
+  - web/app/error.tsx — Next.js 根级 Error Boundary (捕获渲染错误, 显示回退 UI + 重试)
+  - web/app/not-found.tsx — 404 页面 (返回首页链接)
+- Worker 速率限制:
+  - KV 实现的 per-IP 限流 (20 req/min), 排除 Stripe webhook 和 health check
+  - 使用 `CF-Connecting-IP` 头获取真实 IP (Cloudflare 自动注入)
+- AWS 多云支持完善:
+  - provision.ts: getProvider() 接入 AWS 提供者
+  - provision.ts: provisionNode 轮询 EC2 公网 IP 分配 (EC2 不立即分配)
+  - destroy.ts: 接入 AWS 提供者, 支持 EC2 实例终止
+  - providers/aws.ts: 区域-AMI 映射, 安全组要求, ManagedBy 标签
+  - .env.example: 新增 AWS_SECURITY_GROUP_ID
+- wrangler.toml: 新增 NOTIFICATION_WEBHOOK_URL 变量
+- 支付状态 i18n: payment.status.completed/pending/failed/refunded (zh/en)
+- 自托管向导 i18n 完善:
+  - SelfHostedWizard: 修复剩余硬编码中文 ("部署失败" → t("selfhosted.error.generic"))
+  - 成功状态添加返回按钮
+- 取消支付页 i18n:
+  - rental/cancel/page.tsx: 修复硬编码中文 → t("rental.cancel.title") / t("rental.cancel.desc")
+- 按租 SSH 密钥注册 (关键修复):
+  - Vultr provider: 创建 VPS 前自动注册 SSH 公钥 (getOrCreateSSHKeyId), 避免 "无密钥无法 SSH" 问题
+  - DigitalOcean provider: 创建 Droplet 前自动注册 SSH 公钥 (getOrCreateSSHKey, MD5 指纹去重)
+  - provision.ts: provisionNode 将 publicKey 传递给 createServer
+  - 去重: 按公钥内容查找已有记录, 不重复注册
+- 测试体系完善:
+  - vitest.config.ts — 新增 vitest 配置, 替代 `tsx` 直接运行
+  - package.json: `"test": "vitest run"`
+  - generator.test.ts — 扩展到 8 个测试用例 (Singbox JSON 解析、v2rayN 链接参数、特殊字符 URL 编码、无 obfs 分支)
+  - locales.test.ts — 新增 i18n 测试 (zh/en 键对称校验、空值检查、fallback 行为)
+- 测试工具链:
+  - vitest.config.ts — 新增 vitest 配置文件
+  - package.json: `"test": "vitest run"` (替代 `tsx` 直接运行)
+- 文档完善:
+  - README.md: 更新项目结构 (新增 payment/rental/error/not-found/i18n 等文件)、多云厂商标注、安全状态描述
+  - docs/deploy-guide.md: 更新环境变量清单 (含 AWS/DO 变量)、安全检查清单、续期通知配置
+- 构建工具链:
+  - provision-server/tsconfig.json — 新增 TypeScript 配置 (ES2022 + ESNext + bundler moduleResolution)
+  - provision-server/package.json — 添加 `"type": "module"` 支持顶层 await
+  - provision-server/Dockerfile — 简化为仅运行编译后产物 (去除 tsx 回退), 明确文件复制, 权限设置
+  - .gitignore — 新增 provision-server/dist/, .env, node_modules 排除
+- 代码质量:
+  - provision.ts: `crypto.randomUUID()` → `randomUUID()` (显式 node:crypto 导入, 与 ESNext 模块系统一致)
+  - web/app/api/self-hosted/route.ts: 同上, `crypto.randomUUID()` → `randomUUID()`
+- 配置生成器: v2rayN `serviceName` 去掉 gRPC 路径前导 `/` (v2rayN 规范)
+
+### Cleanup (continued)
+- provision-server: `console.log/warn/error` → 结构化 `logger` 模块 (JSON lines, 含 `ts`/`level`/`msg`/元数据字段), 零 `console.*` 残留
+- self-hosted/route.ts: 10 处 `console.log/error` → `deployLog()` 结构化日志 (含时间戳/部署ID/级别)
+- workers/index.ts: cron handler 4 处 `console.log` → `cronLog()` 包装器 (统一时间戳格式)
+- wrangler.toml: 所有中文注释 → 英文
+- README.md: 双语重写 (English primary + 中文), 新增 Tech Stack, 完整环境变量表, npm Scripts 表
+- .env.example: 英文注释重写, 移除中文描述
+- provision-server/.env.example: 新增独立环境变量模板
+- LICENSE: AGPL-3.0 全文
+- vitest.config.ts: 添加 `@` 路径别名解析 (支持 `@/` 导入)
+- web/lib/i18n/store.ts: `setLocale` 添加 `typeof window` 守卫 (避免 Node.js 测试中 `localStorage`/`document.cookie` 报错)
+- .gitignore: 新增 `.vercel/`, `.wrangler/`, `web/.ssh/`, `Thumbs.db`
+- web/lib/deploy/__tests__/types.test.ts: 新增 4 个测试 (PROVIDER_INFO 覆盖/区域 i18n 键/计划价格/协议信息)
+- web/lib/deploy/__tests__/store.test.ts: 新增 7 个测试 (状态初始化/reset/步骤状态转换/时间戳/配置设置/错误处理)
+- web/lib/i18n/__tests__/store.test.ts: 新增 5 个测试 (locale 默认值/切换/翻译/多语言对比/tPlan)
+- web/lib/config/__tests__/generator.test.ts: 新增 6 个边缘用例 (IPv6/port边界/serviceName前导斜杠剥离/四客户端格式一致性)
+- 总测试: 2 → 44 个, 全部通过
+- docs/deploy-guide.md: 双语重写, 新增完整环境变量表, 安全检查清单, 测试章节, 常见问题排查
+
+### Security (19/22 fixed, 3 monitored/accepted)
+- SERVER_TOKEN 必填验证 (支持多云提供商)
+- 认证中间件 (Bearer token + KV session)
+- 用户隔离 (只能操作自己的租约)
+- Stripe webhook 自动创建用户 (email lookup)
+- SSH 密钥自动生成 (ed25519) + 多云 API 注册
+- CORS 限制来源
+- 随机 shortId 生成
+- 非 root 用户运行服务 (xray/hysteria)
+- Shell 脚本输入验证
+- 临时脚本自动清理
+- 错误信息不泄露
+- 销毁脚本仅删除自己密钥
+- 输入长度验证
+- Provision Server 绑定 127.0.0.1
+- 启动时验证多云环境变量
+- Health check 验证所有绑定 (含 Stripe)
+- Stripe webhook 签名验证
+
+### Scripts
+- `scripts/vless-reality.sh` - Xray 核心 + VLESS Reality 安装 (带输入验证, 非 root)
+- `scripts/hysteria2.sh` - Hysteria2 安装 (带输入验证, 非 root, 内核调优)
+- `scripts/destroy.sh` - 销毁前清理 (日志、历史、密钥)

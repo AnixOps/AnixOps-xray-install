@@ -1,0 +1,114 @@
+# AnixOps Self-Hosted Deployment
+# Run: docker compose -f docker-compose.selfhosted.yml up -d
+
+services:
+  # Main API server (self-hosted, no Cloudflare)
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "8787:8787"
+    environment:
+      - PORT=8787
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://anixops:anixops@postgres:5432/anixops
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-anixops-redis-change-me}@redis:6379
+      - PROVISION_SERVER_URL=http://provision:3000
+      - PROVISION_SERVER_TOKEN=${PROVISION_SERVER_TOKEN}
+      - API_SECRET=${API_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - NOTIFICATION_WEBHOOK_URL=${NOTIFICATION_WEBHOOK_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Provision server (VPS creation + SSH deployment)
+  provision:
+    build:
+      context: .
+      dockerfile: provision-server/Dockerfile
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - LOG_LEVEL=info
+      - VULTR_API_KEY=${VULTR_API_KEY}
+      - DO_API_TOKEN=${DO_API_TOKEN}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SECURITY_GROUP_ID=${AWS_SECURITY_GROUP_ID}
+      - SERVER_TOKEN=${PROVISION_SERVER_TOKEN}
+    volumes:
+      - provision-ssh:/app/.ssh
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL database (replaces D1)
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=anixops
+      - POSTGRES_PASSWORD=anixops
+      - POSTGRES_DB=anixops
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/src/db/migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anixops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (replaces KV + Queue)
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-anixops-redis-change-me}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-anixops-redis-change-me}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:-anixops-redis-change-me}\" ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Next.js frontend
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_WORKER_URL: ${NEXT_PUBLIC_WORKER_URL:-http://localhost:8787}
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_WORKER_URL=${NEXT_PUBLIC_WORKER_URL:-http://localhost:8787}
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  provision-ssh:

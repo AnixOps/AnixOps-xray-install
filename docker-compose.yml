@@ -1,0 +1,28 @@
+services:
+  # Next.js frontend
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "3000:3000"
+    env_file: .env.local
+    depends_on:
+      - provision
+
+  # Provision server (VPS creation + SSH deployment)
+  provision:
+    build:
+      context: .
+      dockerfile: provision-server/Dockerfile
+    ports:
+      - "3001:3001"
+    env_file: .env.local
+    volumes:
+      - provision-ssh:/app/.ssh
+
+  # Local D1/KV simulation (wrangler dev handles this)
+  # For production: deploy to Cloudflare Workers + Pages
+
+volumes:
+  provision-ssh:

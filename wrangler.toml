@@ -1,0 +1,44 @@
+# AnixOps — Cloudflare Worker (API) + Pages (frontend)
+# Deploy: npx wrangler deploy
+
+name = "anixops-api"
+main = "web/workers/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 — SQLite database (rentals, users, payments, audit_log)
+[[d1_databases]]
+binding = "DB"
+database_name = "anixops"
+database_id = ""  # Create with: npx wrangler d1 create anixops
+
+# KV — session tokens, node configs, rate limiting
+[[kv_namespaces]]
+binding = "CACHE"
+id = ""  # Create with: npx wrangler kv:namespace create anixops-cache
+preview_id = ""
+
+# Queues — async provision/destroy task processing
+[[queues.producers]]
+queue = "provision-tasks"
+binding = "PROVISION_QUEUE"
+
+[[queues.consumers]]
+queue = "provision-tasks"
+max_batch_size = 1
+max_retries = 3
+dead_letter_queue = "provision-dlq"
+
+# Environment variables
+[vars]
+PROVISION_SERVER_URL = ""  # Provision server endpoint (external Fastify API)
+PROVISION_SERVER_TOKEN = ""  # Shared Bearer token for provision/destroy auth
+STRIPE_SECRET_KEY = ""  # Stripe payment processing
+STRIPE_WEBHOOK_SECRET = ""
+FRONTEND_URL = "http://localhost:3000"  # Next.js Pages URL (Stripe redirect target)
+NOTIFICATION_WEBHOOK_URL = ""  # Expiry reminder webhook (Telegram bot or generic, optional)
+ALLOWED_ORIGINS = "http://localhost:3000"  # CORS allowed origins (comma-separated)
+
+# Cron trigger — every minute: check expiring rentals, auto-destroy, send reminders
+[triggers]
+crons = ["* * * * *"]
