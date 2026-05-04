@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/store";
 import { workerFetch } from "@/lib/api/client";
-import { Button, Card, Input, Label, Badge, useToast } from "@/components/ui";
+import { Button, Card, Input, Label, Badge, Textarea, useToast } from "@/components/ui";
 
 interface RedeemCodeRow {
   redeem_codes: {
@@ -59,57 +59,148 @@ interface AdminOverviewResponse {
     detail: string | null;
     createdAt: string;
   }>;
+  recentFailedJobs: Array<{
+    id: string;
+    name: string;
+    data: Record<string, unknown>;
+    failedReason: string;
+    finishedOn?: number;
+    stacktrace: string[];
+  }>;
 }
+
+interface SearchResponse {
+  users: Array<{
+    userId: string;
+    email: string | null;
+    createdAt: string;
+  }>;
+  rentals: Array<{
+    rentalId: string;
+    email: string | null;
+    protocol: string;
+    status: string;
+    ip: string | null;
+    vpsId: string | null;
+    createdAt: string;
+    expiresAt: string | null;
+  }>;
+}
+
+interface RentalDetailResponse {
+  rental: {
+    rentalId: string;
+    userId: string | null;
+    email: string | null;
+    protocol: string;
+    status: string;
+    ip: string | null;
+    vpsId: string | null;
+    durationHours: number;
+    pricePerHour: number;
+    totalPrice: number;
+    paymentMethod: string | null;
+    paymentStatus: string | null;
+    startedAt: string | null;
+    expiresAt: string | null;
+    pausedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+    remainingMinutes: number;
+  };
+  config: Record<string, unknown> | null;
+  recentAuditEntries: Array<{
+    id: number;
+    action: string;
+    detail: string | null;
+    createdAt: string;
+  }>;
+}
+
+const CODE_TEMPLATES = [
+  { label: "1h Trial", durationHours: 1, count: 10 },
+  { label: "6h Burst", durationHours: 6, count: 10 },
+  { label: "24h Standard", durationHours: 24, count: 20 },
+  { label: "72h Promo", durationHours: 72, count: 5 },
+];
 
 export default function AdminPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const token = useAuthStore((s) => s.token);
   const isAdmin = useAuthStore((s) => s.isAdmin);
+
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
   const [codes, setCodes] = useState<RedeemCodeRow[]>([]);
+  const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
+  const [selectedRental, setSelectedRental] = useState<RentalDetailResponse | null>(null);
+  const [selectedRentalId, setSelectedRentalId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [destroying, setDestroying] = useState(false);
   const [count, setCount] = useState("10");
   const [durationHours, setDurationHours] = useState("24");
   const [expiresAt, setExpiresAt] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const selectedConfigText = useMemo(() => {
+    if (!selectedRental?.config) {
+      return "";
+    }
+    return JSON.stringify(selectedRental.config, null, 2);
+  }, [selectedRental]);
 
   const loadCodes = async () => {
     if (!token) return;
-    try {
-      const res = await workerFetch("/api/admin/redeem-codes", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "Failed to load admin data");
-      }
-      setCodes(data.codes || []);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Failed to load admin data", "error");
+    const res = await workerFetch("/api/admin/redeem-codes", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || "Failed to load redeem codes");
     }
+    setCodes(data.codes || []);
   };
 
   const loadOverview = async () => {
     if (!token) return;
-    try {
-      const res = await workerFetch("/api/admin/overview", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "Failed to load overview");
-      }
-      setOverview(data);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Failed to load overview", "error");
+    const res = await workerFetch("/api/admin/overview", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || "Failed to load overview");
     }
+    setOverview(data);
   };
 
   const loadAll = async () => {
     setLoading(true);
-    await Promise.all([loadOverview(), loadCodes()]);
-    setLoading(false);
+    try {
+      await Promise.all([loadOverview(), loadCodes()]);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to load admin dashboard", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRentalDetail = async (rentalId: string) => {
+    if (!token) return;
+    setSelectedRentalId(rentalId);
+    try {
+      const res = await workerFetch(`/api/admin/rentals/${rentalId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to load rental detail");
+      }
+      setSelectedRental(data);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to load rental detail", "error");
+    }
   };
 
   useEffect(() => {
@@ -157,16 +248,61 @@ export default function AdminPage() {
     }
   };
 
+  const handleSearch = async () => {
+    if (!token) return;
+    if (searchQuery.trim().length < 2) {
+      showToast("Search query must be at least 2 characters", "warning");
+      return;
+    }
+    setSearching(true);
+    try {
+      const res = await workerFetch(`/api/admin/search?q=${encodeURIComponent(searchQuery.trim())}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to search");
+      }
+      setSearchResult(data);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to search", "error");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleForceDestroy = async () => {
+    if (!token || !selectedRentalId) return;
+    if (!confirm(`Force destroy rental ${selectedRentalId}?`)) return;
+    setDestroying(true);
+    try {
+      const res = await workerFetch(`/api/admin/rentals/${selectedRentalId}/destroy`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to destroy rental");
+      }
+      showToast(`Destroy queued for ${selectedRentalId}`, "success");
+      await Promise.all([loadAll(), loadRentalDetail(selectedRentalId)]);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to destroy rental", "error");
+    } finally {
+      setDestroying(false);
+    }
+  };
+
   if (!token || !isAdmin) {
     return null;
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 py-8">
+    <div className="mx-auto max-w-7xl space-y-6 py-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Admin</h1>
-          <p className="text-sm text-muted-foreground">Operations dashboard and redeem code management</p>
+          <p className="text-sm text-muted-foreground">Operations dashboard, search, rental control, and redeem codes</p>
         </div>
         <Button variant="outline" onClick={() => router.push("/")}>
           Back
@@ -174,7 +310,7 @@ export default function AdminPage() {
       </div>
 
       {overview && (
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
           <SummaryCard label="Users" value={String(overview.summary.totalUsers)} />
           <SummaryCard label="Active Rentals" value={String(overview.summary.activeRentals)} />
           <SummaryCard label="Provisioning" value={String(overview.summary.provisioningRentals)} />
@@ -183,6 +319,153 @@ export default function AdminPage() {
           <SummaryCard label="Codes Used" value={String(overview.summary.usedRedeemCodes)} />
         </div>
       )}
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <Card className="p-6 space-y-4 xl:col-span-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Search Users / Rentals</h2>
+            <Button variant="outline" onClick={handleSearch} disabled={searching}>
+              {searching ? "Searching..." : "Search"}
+            </Button>
+          </div>
+          <div className="flex gap-3">
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="email, rental id, IP, protocol, status"
+            />
+          </div>
+          {searchResult && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-3">
+                <div className="text-sm font-medium">Users</div>
+                {searchResult.users.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No users matched</div>
+                ) : searchResult.users.map((user) => (
+                  <div key={user.userId} className="rounded-lg border p-3 text-sm">
+                    <div className="font-medium">{user.email || "Unknown"}</div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">{user.userId}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-3">
+                <div className="text-sm font-medium">Rentals</div>
+                {searchResult.rentals.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No rentals matched</div>
+                ) : searchResult.rentals.map((rental) => (
+                  <button
+                    key={rental.rentalId}
+                    onClick={() => loadRentalDetail(rental.rentalId)}
+                    className="w-full rounded-lg border p-3 text-left text-sm transition hover:border-primary/50"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">{rental.email || "Unknown user"}</div>
+                      <Badge variant={rental.status === "active" ? "default" : "secondary"}>{rental.status}</Badge>
+                    </div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">{rental.rentalId}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{rental.protocol} · {rental.ip || "-"}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Code Templates</h2>
+            <Badge variant="outline">{CODE_TEMPLATES.length}</Badge>
+          </div>
+          <div className="space-y-3">
+            {CODE_TEMPLATES.map((template) => (
+              <button
+                key={template.label}
+                onClick={() => {
+                  setCount(String(template.count));
+                  setDurationHours(String(template.durationHours));
+                }}
+                className="w-full rounded-lg border p-3 text-left transition hover:border-primary/50"
+              >
+                <div className="font-medium">{template.label}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{template.durationHours}h · default {template.count} codes</div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <Card className="p-6 space-y-4 xl:col-span-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Rental Detail</h2>
+            {selectedRentalId && (
+              <Button variant="destructive" onClick={handleForceDestroy} disabled={destroying}>
+                {destroying ? "Destroying..." : "Force Destroy"}
+              </Button>
+            )}
+          </div>
+          {!selectedRental ? (
+            <div className="text-sm text-muted-foreground">Select a rental from search results or recent rentals.</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <DetailItem label="Rental ID" value={selectedRental.rental.rentalId} mono />
+                <DetailItem label="User" value={selectedRental.rental.email || "-"} />
+                <DetailItem label="Protocol" value={selectedRental.rental.protocol} />
+                <DetailItem label="Status" value={selectedRental.rental.status} />
+                <DetailItem label="IP" value={selectedRental.rental.ip || "-"} mono />
+                <DetailItem label="VPS ID" value={selectedRental.rental.vpsId || "-"} mono />
+                <DetailItem label="Duration" value={`${selectedRental.rental.durationHours}h`} />
+                <DetailItem label="Remaining" value={`${selectedRental.rental.remainingMinutes}m`} />
+                <DetailItem label="Price" value={`$${selectedRental.rental.totalPrice.toFixed(2)}`} />
+                <DetailItem label="Payment" value={`${selectedRental.rental.paymentMethod || "-"} / ${selectedRental.rental.paymentStatus || "-"}`} />
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Config Summary</div>
+                <Textarea value={selectedConfigText || "No cached config"} readOnly className="min-h-[180px] font-mono text-xs" />
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Recent Rental Audit</div>
+                <div className="space-y-2">
+                  {selectedRental.recentAuditEntries.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">No audit entries</div>
+                  ) : selectedRental.recentAuditEntries.map((entry) => (
+                    <div key={entry.id} className="rounded-lg border p-3 text-sm">
+                      <div className="font-medium">{entry.action}</div>
+                      {entry.detail && <div className="mt-1 text-xs text-muted-foreground">{entry.detail}</div>}
+                      <div className="mt-1 text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Recent Failed Jobs</h2>
+            <Badge variant="outline">{overview?.recentFailedJobs.length || 0}</Badge>
+          </div>
+          <div className="space-y-3">
+            {overview?.recentFailedJobs?.length ? overview.recentFailedJobs.map((job) => (
+              <div key={String(job.id)} className="rounded-lg border p-3 text-sm">
+                <div className="font-medium">{job.name}</div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">{JSON.stringify(job.data)}</div>
+                <div className="mt-2 text-xs text-red-600">{job.failedReason}</div>
+                {job.stacktrace?.[0] && (
+                  <div className="mt-2 text-[11px] text-muted-foreground">{job.stacktrace[0]}</div>
+                )}
+              </div>
+            )) : (
+              <div className="text-sm text-muted-foreground">No failed jobs.</div>
+            )}
+          </div>
+        </Card>
+      </div>
 
       {overview && (
         <div className="grid gap-6 xl:grid-cols-3">
@@ -193,18 +476,18 @@ export default function AdminPage() {
             </div>
             <div className="space-y-3">
               {overview.recentRentals.map((rental) => (
-                <div key={rental.rentalId} className="rounded-lg border p-3 text-sm">
+                <button
+                  key={rental.rentalId}
+                  onClick={() => loadRentalDetail(rental.rentalId)}
+                  className="w-full rounded-lg border p-3 text-left text-sm transition hover:border-primary/50"
+                >
                   <div className="flex items-center justify-between">
                     <div className="font-medium">{rental.email || "Unknown user"}</div>
                     <Badge variant={rental.status === "active" ? "default" : "secondary"}>{rental.status}</Badge>
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {rental.protocol} · {rental.durationHours}h · ${rental.totalPrice.toFixed(2)}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {new Date(rental.createdAt).toLocaleString()}
-                  </div>
-                </div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">{rental.rentalId}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{rental.protocol} · ${rental.totalPrice.toFixed(2)}</div>
+                </button>
               ))}
             </div>
           </Card>
@@ -215,7 +498,9 @@ export default function AdminPage() {
               <Badge variant="outline">{overview.recentPayments.length}</Badge>
             </div>
             <div className="space-y-3">
-              {overview.recentPayments.map((payment) => (
+              {overview.recentPayments.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No payments yet.</div>
+              ) : overview.recentPayments.map((payment) => (
                 <div key={payment.paymentId} className="rounded-lg border p-3 text-sm">
                   <div className="flex items-center justify-between">
                     <div className="font-medium">{payment.email || "Unknown user"}</div>
@@ -224,9 +509,7 @@ export default function AdminPage() {
                   <div className="mt-1 text-xs text-muted-foreground">
                     ${payment.amount.toFixed(2)} {payment.currency.toUpperCase()} · {payment.method}
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {new Date(payment.createdAt).toLocaleString()}
-                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">{new Date(payment.createdAt).toLocaleString()}</div>
                 </div>
               ))}
             </div>
@@ -238,15 +521,13 @@ export default function AdminPage() {
               <Badge variant="outline">{overview.recentAuditEntries.length}</Badge>
             </div>
             <div className="space-y-3">
-              {overview.recentAuditEntries.map((entry) => (
+              {overview.recentAuditEntries.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No audit entries yet.</div>
+              ) : overview.recentAuditEntries.map((entry) => (
                 <div key={entry.id} className="rounded-lg border p-3 text-sm">
                   <div className="font-medium">{entry.action}</div>
-                  {entry.detail && (
-                    <div className="mt-1 text-xs text-muted-foreground">{entry.detail}</div>
-                  )}
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {new Date(entry.createdAt).toLocaleString()}
-                  </div>
+                  {entry.detail && <div className="mt-1 text-xs text-muted-foreground">{entry.detail}</div>}
+                  <div className="mt-1 text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</div>
                 </div>
               ))}
             </div>
@@ -313,15 +594,9 @@ export default function AdminPage() {
                           {used ? "Used" : "Available"}
                         </Badge>
                       </td>
-                      <td className="py-3 pr-4 text-xs">
-                        {row.users?.email || "-"}
-                      </td>
-                      <td className="py-3 pr-4 text-xs">
-                        {code.expiresAt ? new Date(code.expiresAt).toLocaleString() : "-"}
-                      </td>
-                      <td className="py-3 pr-0 text-xs">
-                        {new Date(code.createdAt).toLocaleString()}
-                      </td>
+                      <td className="py-3 pr-4 text-xs">{row.users?.email || "-"}</td>
+                      <td className="py-3 pr-4 text-xs">{code.expiresAt ? new Date(code.expiresAt).toLocaleString() : "-"}</td>
+                      <td className="py-3 pr-0 text-xs">{new Date(code.createdAt).toLocaleString()}</td>
                     </tr>
                   );
                 })}
@@ -340,5 +615,14 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
       <div className="text-sm text-muted-foreground">{label}</div>
       <div className="mt-2 text-2xl font-semibold">{value}</div>
     </Card>
+  );
+}
+
+function DetailItem({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-sm ${mono ? "font-mono break-all" : ""}`}>{value}</div>
+    </div>
   );
 }

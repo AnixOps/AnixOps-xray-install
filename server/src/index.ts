@@ -5,8 +5,8 @@ import { cors } from "hono/cors";
 import Stripe from "stripe";
 import { db, rentals, users, payments, redeemCodes, auditLog } from "./db/index.js";
 import { eq, and, or, sql, desc } from "drizzle-orm";
-import { redis, setCache, deleteCache } from "./lib/redis.js";
-import { addProvisionJob, createProvisionWorker } from "./lib/queue.js";
+import { redis, getCache, setCache, deleteCache } from "./lib/redis.js";
+import { addProvisionJob, createProvisionWorker, provisionQueue } from "./lib/queue.js";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import nodemailer from "nodemailer";
@@ -923,6 +923,7 @@ app.get("/api/admin/overview", async (c) => {
     recentRentals,
     recentPayments,
     recentAuditEntries,
+    recentFailedJobs,
   ] = await Promise.all([
     db.select({ count: sql<number>`count(*)::int` }).from(users),
     db.select({ count: sql<number>`count(*)::int` }).from(rentals)
@@ -974,6 +975,7 @@ app.get("/api/admin/overview", async (c) => {
       .from(auditLog)
       .orderBy(desc(auditLog.createdAt))
       .limit(10),
+    provisionQueue.getFailed(0, 9),
   ]);
 
   return c.json({
@@ -988,7 +990,159 @@ app.get("/api/admin/overview", async (c) => {
     recentRentals,
     recentPayments,
     recentAuditEntries,
+    recentFailedJobs: recentFailedJobs.map((job) => ({
+      id: job.id,
+      name: job.name,
+      data: job.data,
+      failedReason: job.failedReason,
+      finishedOn: job.finishedOn,
+      stacktrace: job.stacktrace?.slice(0, 3) || [],
+    })),
   });
+});
+
+app.get("/api/admin/search", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const q = (c.req.query("q") || "").trim().toLowerCase();
+  if (q.length < 2) {
+    return c.json({ error: "Query must be at least 2 characters" }, 400);
+  }
+
+  const pattern = `%${q}%`;
+
+  const [matchedUsers, matchedRentals] = await Promise.all([
+    db.select({
+      userId: users.id,
+      email: users.email,
+      createdAt: users.createdAt,
+    })
+      .from(users)
+      .where(sql`lower(coalesce(${users.email}, '')) like ${pattern}`)
+      .orderBy(desc(users.createdAt))
+      .limit(10),
+    db.select({
+      rentalId: rentals.id,
+      email: users.email,
+      protocol: rentals.protocol,
+      status: rentals.status,
+      ip: rentals.ip,
+      vpsId: rentals.vpsId,
+      createdAt: rentals.createdAt,
+      expiresAt: rentals.expiresAt,
+    })
+      .from(rentals)
+      .leftJoin(users, eq(rentals.userId, users.id))
+      .where(sql`
+        lower(${rentals.id}) like ${pattern}
+        or lower(coalesce(${users.email}, '')) like ${pattern}
+        or lower(coalesce(${rentals.ip}, '')) like ${pattern}
+        or lower(${rentals.protocol}) like ${pattern}
+        or lower(${rentals.status}) like ${pattern}
+      `)
+      .orderBy(desc(rentals.createdAt))
+      .limit(15),
+  ]);
+
+  return c.json({ users: matchedUsers, rentals: matchedRentals });
+});
+
+app.get("/api/admin/rentals/:id", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const rentalId = c.req.param("id");
+  const result = await db.select({
+    rentalId: rentals.id,
+    userId: rentals.userId,
+    email: users.email,
+    protocol: rentals.protocol,
+    status: rentals.status,
+    ip: rentals.ip,
+    vpsId: rentals.vpsId,
+    durationHours: rentals.durationHours,
+    pricePerHour: rentals.pricePerHour,
+    totalPrice: rentals.totalPrice,
+    paymentMethod: rentals.paymentMethod,
+    paymentStatus: rentals.paymentStatus,
+    startedAt: rentals.startedAt,
+    expiresAt: rentals.expiresAt,
+    pausedAt: rentals.pausedAt,
+    createdAt: rentals.createdAt,
+    updatedAt: rentals.updatedAt,
+  })
+    .from(rentals)
+    .leftJoin(users, eq(rentals.userId, users.id))
+    .where(eq(rentals.id, rentalId))
+    .limit(1);
+
+  if (result.length === 0) {
+    return c.json({ error: "Rental not found" }, 404);
+  }
+
+  const rental = result[0];
+  const config = await getCache<Record<string, unknown>>(`rental:${rentalId}:config`);
+  const recentAuditEntries = await db.select({
+    id: auditLog.id,
+    action: auditLog.action,
+    detail: auditLog.detail,
+    createdAt: auditLog.createdAt,
+  })
+    .from(auditLog)
+    .where(eq(auditLog.rentalId, rentalId))
+    .orderBy(desc(auditLog.createdAt))
+    .limit(10);
+
+  const now = new Date();
+  const remainingMinutes = rental.expiresAt
+    ? Math.max(0, Math.floor((rental.expiresAt.getTime() - now.getTime()) / 60000))
+    : 0;
+
+  return c.json({
+    rental: {
+      ...rental,
+      remainingMinutes,
+    },
+    config,
+    recentAuditEntries,
+  });
+});
+
+app.post("/api/admin/rentals/:id/destroy", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const rentalId = c.req.param("id");
+  const rental = await db.select().from(rentals).where(eq(rentals.id, rentalId)).limit(1);
+  if (rental.length === 0) {
+    return c.json({ error: "Rental not found" }, 404);
+  }
+
+  if (rental[0].status !== "destroyed") {
+    await db.update(rentals)
+      .set({ status: "destroyed", updatedAt: new Date() })
+      .where(eq(rentals.id, rentalId));
+
+    await db.insert(auditLog).values({
+      rentalId,
+      action: "admin_destroy_requested",
+      detail: `status=${rental[0].status}`,
+    });
+
+    await addProvisionJob({
+      rentalId,
+      action: "destroy",
+      vpsId: rental[0].vpsId ?? undefined,
+      ip: rental[0].ip ?? undefined,
+    });
+    await deleteCache(`rental:${rentalId}:config`);
+  }
+
+  return c.json({ status: "destroyed", rentalId });
 });
 
 // ============================================================
