@@ -8,12 +8,14 @@ Last updated: 2026-05-08
 
 当前状态基线见 [docs/current-state-audit.md](/root/code/AnixOps-xray-install/docs/current-state-audit.md)，实施差距见 [docs/implementation-gap-checklist.md](/root/code/AnixOps-xray-install/docs/implementation-gap-checklist.md)。
 
+用户侧 Wallet Console 已经完成标准化：普通用户可以从首页 `Console Wallet` 登录入口进入 `/console/wallet`，并看到完整的充值单状态、精确到账金额和复制动作。下面的条目只剩生产化、对账和更细的运营视图。
+
 ## 仍需推进的事项
 
 | 事项 | 当前状态 | 仍缺什么 |
 |---|---|---|
-| 真实链上充值 provider | Partial | 真实地址托管、确认监听、汇率源、对账、失败重试 |
-| 审计锚定测试链闭环 | Partial | 自托管 scheduler 常驻、首笔测试链交易、`txHash` / receipt 恢复 runbook |
+| 真实链上充值 provider | Partial | 用户侧充值控制台已完成；还缺真实地址托管、确认监听、汇率源、对账、失败重试 |
+| 审计锚定测试链闭环 | Partial | 用户侧充值控制台已完成；还缺自托管 scheduler 常驻、首笔测试链交易、`txHash` / receipt 恢复 runbook |
 | 合规统计与运营视图 | Partial | 更细的管理端和用户端统计、导出和告警 |
 | Worker 版 API 去留 | Decision Needed | `web/workers/index.ts` 是否继续保留，还是迁移/删除 |
 
