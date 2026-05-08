@@ -1,7 +1,7 @@
 export const VALID_RENTAL_DURATIONS = [1, 6, 12, 24] as const;
 
 export type RentalDuration = (typeof VALID_RENTAL_DURATIONS)[number];
-export type RentalPaymentMethod = "stripe" | "redeem_code";
+export type RentalPaymentMethod = "stripe" | "wallet" | "x402" | "redeem_code";
 
 export interface RentalPriceTier {
   pricePerHour: number;

@@ -18,6 +18,8 @@ interface ComplianceProfile {
   blockedProtocols: string[];
 }
 
+type CheckoutPaymentMethod = "stripe" | "wallet" | "x402" | "redeem";
+
 export function RentalWizard() {
   const step = useDeployStore((s) => s.step);
   const protocol = useDeployStore((s) => s.protocol);
@@ -39,7 +41,7 @@ export function RentalWizard() {
   const isZh = locale === "zh";
 
   const [email, setEmail] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"stripe" | "redeem" | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod | null>(null);
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemCodeValidating, setRedeemCodeValidating] = useState(false);
   const [redeemCodeValid, setRedeemCodeValid] = useState(false);
@@ -62,6 +64,9 @@ export function RentalWizard() {
         }
         if (state.email) setEmail(state.email);
         if (state.complianceProfileId) setComplianceProfileId(state.complianceProfileId);
+        if (["stripe", "wallet", "x402", "redeem"].includes(state.paymentMethod)) {
+          setPaymentMethod(state.paymentMethod);
+        }
         if (state.step) setStep(state.step);
         sessionStorage.removeItem(SESSION_KEY);
       }
@@ -99,6 +104,7 @@ export function RentalWizard() {
         rentalPlanId: rentalPlan?.id,
         email,
         complianceProfileId,
+        paymentMethod,
         step,
       }),
     );
@@ -144,9 +150,21 @@ export function RentalWizard() {
   const selectedTotal = rentalPlan ? `$${rentalPlan.totalPrice.toFixed(2)}` : "—";
   const selectedComplianceProfile = complianceProfiles.find((profile) => profile.id === complianceProfileId) || null;
   const selectedComplianceLabel = selectedComplianceProfile?.name || "Standard";
+  const paymentMethodLabels: Record<CheckoutPaymentMethod, string> = {
+    stripe: t("payment.stripe"),
+    wallet: t("payment.wallet"),
+    x402: t("payment.x402"),
+    redeem: t("payment.redeemCode"),
+  };
+  const selectedPaymentLabel = paymentMethod ? paymentMethodLabels[paymentMethod] : "—";
   const complianceBlocksProtocol = Boolean(
     protocol && selectedComplianceProfile?.blockedProtocols?.includes(protocol),
   );
+  const clearRedeemState = () => {
+    setRedeemCode("");
+    setRedeemCodeValid(false);
+    setRedeemCodeError(null);
+  };
 
   const protocolCards = useMemo(
     () => [
@@ -284,12 +302,7 @@ export function RentalWizard() {
               { label: isZh ? "邮箱" : "Email", value: email || "—" },
               {
                 label: isZh ? "支付方式" : "Payment",
-                value:
-                  paymentMethod === "stripe"
-                    ? t("payment.stripe")
-                    : paymentMethod === "redeem"
-                      ? t("payment.redeemCode")
-                      : "—",
+                value: selectedPaymentLabel,
               },
               { label: isZh ? "合规策略" : "Compliance", value: selectedComplianceLabel },
               { label: isZh ? "总价" : "Total", value: selectedTotal },
@@ -364,21 +377,39 @@ export function RentalWizard() {
               <Label>{t("rental.paymentMethod")}</Label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <PaymentMethodCard
+                  active={paymentMethod === "wallet"}
+                  title={t("payment.wallet")}
+                  body={isZh ? "从测试链钱包余额直接结算，适合常规虚拟货币支付。" : "Settle directly from wallet balance on the test chain."}
+                  onClick={() => {
+                    setPaymentMethod("wallet");
+                    clearRedeemState();
+                  }}
+                />
+                <PaymentMethodCard
+                  active={paymentMethod === "x402"}
+                  title={t("payment.x402")}
+                  body={isZh ? "按 X402 路径记录支付，当前测试服复用测试链结算。" : "Record the payment through the X402-labeled test-chain path."}
+                  onClick={() => {
+                    setPaymentMethod("x402");
+                    clearRedeemState();
+                  }}
+                />
+                <PaymentMethodCard
                   active={paymentMethod === "stripe"}
                   title={t("payment.stripe")}
                   body={isZh ? "适合标准付款与后续续费。" : "Best for standard checkout and later renewals."}
                   onClick={() => {
                     setPaymentMethod("stripe");
-                    setRedeemCode("");
-                    setRedeemCodeValid(false);
-                    setRedeemCodeError(null);
+                    clearRedeemState();
                   }}
                 />
                 <PaymentMethodCard
                   active={paymentMethod === "redeem"}
                   title={t("payment.redeemCode")}
                   body={isZh ? "直接匹配兑换码时长并跳过付款。" : "Match a code to duration and skip checkout entirely."}
-                  onClick={() => setPaymentMethod("redeem")}
+                  onClick={() => {
+                    setPaymentMethod("redeem");
+                  }}
                 />
               </div>
             </div>
@@ -461,7 +492,7 @@ export function RentalWizard() {
                 {isZh ? "最终确认" : "Final confirmation"}
               </div>
               <Badge variant="outline" className="px-3 py-1">
-                {paymentMethod === "redeem" ? t("payment.redeemCode") : t("payment.stripe")}
+                {selectedPaymentLabel}
               </Badge>
             </div>
             <div className="space-y-3 text-sm">
@@ -536,6 +567,31 @@ export function RentalWizard() {
                   } else if (data.url) {
                     window.location.href = data.url;
                     return;
+                  }
+                } else if (paymentMethod === "wallet" || paymentMethod === "x402") {
+                  const authState = useAuthStore.getState();
+                  const res = await workerFetch("/api/rental", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${authState.token}`,
+                    },
+                    body: JSON.stringify({
+                      protocol,
+                      durationHours: rentalPlan.durationHours,
+                      paymentMethod,
+                      complianceProfileId,
+                    }),
+                  });
+                  const data = await res.json();
+                  if (data.error) {
+                    setError(data.error);
+                    setStatus("failed");
+                  } else {
+                    setRentalId(data.rentalId);
+                    setRemainingMinutes(rentalPlan.durationHours * 60);
+                    setRentalStatus("active");
+                    setStatus("success");
                   }
                 } else {
                   const authState = useAuthStore.getState();

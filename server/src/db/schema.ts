@@ -48,7 +48,7 @@ export const payments = pgTable("payments", {
   userId: text("user_id").references(() => users.id),
   amount: real("amount").notNull(),
   currency: text("currency").default("usd"),
-  method: text("method").notNull(), // 'stripe' | 'redeem_code'
+  method: text("method").notNull(), // 'stripe' | 'wallet' | 'x402' | 'redeem_code'
   stripeSessionId: text("stripe_session_id"),
   status: text("status").default("completed"), // 'pending' | 'completed' | 'failed' | 'refunded'
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

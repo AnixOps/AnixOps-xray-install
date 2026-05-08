@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS payments (
     user_id TEXT REFERENCES users(id),
     amount REAL NOT NULL,
     currency TEXT DEFAULT 'usd',
-    method TEXT NOT NULL CHECK (method IN ('stripe', 'free_trial', 'redeem_code')),
+    method TEXT NOT NULL CHECK (method IN ('stripe', 'free_trial', 'redeem_code', 'wallet', 'x402')),
     stripe_session_id TEXT,
     status TEXT DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'failed', 'refunded')),
     created_at DATETIME DEFAULT (datetime('now')),

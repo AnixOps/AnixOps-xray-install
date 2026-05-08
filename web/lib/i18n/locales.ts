@@ -211,6 +211,8 @@ export const translations: Record<Locale, Record<string, string>> = {
 
     // Payment
     "payment.stripe": "Stripe",
+    "payment.wallet": "钱包支付",
+    "payment.x402": "X402",
     "payment.redeemCode": "兑换码",
     "payment.redeemCode.placeholder": "输入兑换码",
     "payment.redeemCode.validate": "验证",
@@ -430,6 +432,8 @@ export const translations: Record<Locale, Record<string, string>> = {
 
     // Payment
     "payment.stripe": "Stripe",
+    "payment.wallet": "Wallet",
+    "payment.x402": "X402",
     "payment.redeemCode": "Redeem Code",
     "payment.redeemCode.placeholder": "Enter redeem code",
     "payment.redeemCode.validate": "Validate",

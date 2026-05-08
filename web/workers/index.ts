@@ -221,8 +221,10 @@ app.post("/api/rental", verifyAuth, async (c) => {
   const userId = c.get("userId");
   const body = await c.req.json();
   const { protocol, durationHours, paymentMethod } = body;
+  const supportedPaymentMethods = ["stripe", "wallet", "x402"];
+  const walletStylePayment = paymentMethod === "wallet" || paymentMethod === "x402";
 
-  if (!protocol || !durationHours || paymentMethod !== "stripe") {
+  if (!protocol || !durationHours || !supportedPaymentMethods.includes(paymentMethod)) {
     return c.json({ error: "Invalid rental request" }, 400);
   }
 
@@ -238,7 +240,6 @@ app.post("/api/rental", verifyAuth, async (c) => {
     return c.json({ error: "Invalid duration. Choose 1, 6, 12, or 24 hours." }, 400);
   }
 
-  const db = new DB(c.env.DB);
   const rentalId = crypto.randomUUID();
   const tier = getRentalPrice(durationHours);
   if (!tier) {
@@ -250,6 +251,22 @@ app.post("/api/rental", verifyAuth, async (c) => {
   ).bind(userId).first<{ id: string }>();
   if (activeRental) {
     return c.json({ error: "Existing rental still active. Destroy or finish it before creating another." }, 409);
+  }
+
+  if (walletStylePayment) {
+    const balanceRow = await c.env.DB.prepare(
+      "SELECT balance FROM users WHERE id = ?"
+    ).bind(userId).first<{ balance: number }>();
+    const available = Number(balanceRow?.balance || 0);
+    const minimumBalance = Math.max(0.01, Math.round((tier.pricePerHour / 12) * 100) / 100);
+    if (available < minimumBalance) {
+      return c.json({
+        error: "Insufficient wallet balance",
+        code: "WALLET_BALANCE_LOW",
+        balance: available,
+        required: minimumBalance,
+      }, 402);
+    }
   }
 
   // Store rental in D1
@@ -265,6 +282,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
      VALUES (?, ?, ?, ?, 'usd', ?, 'completed', datetime('now'))`
   ).bind(paymentId, rentalId, userId, tier.totalPrice, paymentMethod).run();
 
+  const db = new DB(c.env.DB);
   // Audit log
   await db.addAuditLog(rentalId, "rental_created", `protocol=${protocol}, duration=${durationHours}h`);
 
@@ -275,7 +293,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     durationHours,
   });
 
-  return c.json({ rentalId, totalPrice, status: "provisioning" });
+  return c.json({ rentalId, totalPrice: tier.totalPrice, status: "provisioning", billingMode: walletStylePayment ? "wallet_tick" : "legacy_direct_payment" });
 });
 
 // Get user's payment history (with auth)

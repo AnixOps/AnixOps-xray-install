@@ -736,6 +736,35 @@ async function ensureRedeemCodeModeSchema() {
   return ensureRedeemCodeModeSchemaPromise;
 }
 
+let ensurePaymentMethodSchemaPromise: Promise<void> | null = null;
+async function ensurePaymentMethodSchema() {
+  if (!ensurePaymentMethodSchemaPromise) {
+    ensurePaymentMethodSchemaPromise = (async () => {
+      await db.execute(sql`
+        DO $$
+        DECLARE
+          constraint_name text;
+        BEGIN
+          FOR constraint_name IN
+            SELECT conname
+            FROM pg_constraint
+            WHERE conrelid = 'payments'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) ILIKE '%method%'
+          LOOP
+            EXECUTE format('ALTER TABLE payments DROP CONSTRAINT IF EXISTS %I', constraint_name);
+          END LOOP;
+        END $$;
+      `);
+      await db.execute(sql`
+        ALTER TABLE payments
+        ADD CONSTRAINT payments_method_check CHECK (method IN ('stripe', 'free_trial', 'redeem_code', 'wallet', 'x402'))
+      `);
+    })();
+  }
+  return ensurePaymentMethodSchemaPromise;
+}
+
 function getRedeemCodeWalletCredit(durationHours: number) {
   const tier = getRentalPrice(durationHours);
   if (tier) {
@@ -1718,7 +1747,10 @@ app.post("/api/rental", verifyAuth, async (c) => {
   const body = await c.req.json();
   const { protocol, durationHours, paymentMethod } = body;
 
-  if (!protocol || !durationHours || !["stripe", "wallet"].includes(paymentMethod)) {
+  const supportedPaymentMethods = ["stripe", "wallet", "x402"];
+  const walletStylePayment = paymentMethod === "wallet" || paymentMethod === "x402";
+
+  if (!protocol || !durationHours || !supportedPaymentMethods.includes(paymentMethod)) {
     return c.json({ error: "Invalid rental request" }, 400);
   }
 
@@ -1750,7 +1782,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     return c.json({ error: "Existing rental is active, paused, or still provisioning. Destroy or finish it before creating another." }, 409);
   }
 
-  if (paymentMethod === "wallet") {
+  if (walletStylePayment) {
     const available = await getWalletAvailableBalance(userId);
     const minimumBalance = Math.max(0.01, Math.round((tier.pricePerHour / 12) * 100) / 100);
     if (available < minimumBalance) {
@@ -1790,8 +1822,8 @@ app.post("/api/rental", verifyAuth, async (c) => {
     expiresAt,
   });
 
-  if (paymentMethod === "stripe") {
-    // Record legacy direct-rental payment. Wallet rentals are charged by billing ticks.
+  // Record the payment method used to create this rental.
+  if (supportedPaymentMethods.includes(paymentMethod)) {
     const paymentId = randomUUID();
     await db.insert(payments).values({
       id: paymentId,
@@ -1829,7 +1861,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     rentalId,
     totalPrice: tier.totalPrice,
     status: "provisioning",
-    billingMode: paymentMethod === "wallet" ? "wallet_tick" : "legacy_direct_payment",
+    billingMode: walletStylePayment ? "wallet_tick" : "legacy_direct_payment",
   });
 });
 
@@ -5435,6 +5467,7 @@ provisionWorker.on("failed", async (job, err) => {
 await Promise.all([
   ensureAdminUserSchema(),
   ensureRedeemCodeModeSchema(),
+  ensurePaymentMethodSchema(),
   ensureReferralSchema(),
   ensureCryptoTopupSchema(),
   ensureComplianceSchema(),

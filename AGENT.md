@@ -11,6 +11,7 @@
 - [docs/current-state-audit.md](docs/current-state-audit.md)
 - [docs/implementation-gap-checklist.md](docs/implementation-gap-checklist.md)
 - [docs/manual-input-checklist.md](docs/manual-input-checklist.md)
+- [docs/payment-balance-model.md](docs/payment-balance-model.md)
 - [docs/long-term-api-plan.md](docs/long-term-api-plan.md)
 - [docs/user-console-compliance-roadmap.md](docs/user-console-compliance-roadmap.md)
 - [docs/evm-testnet-playbook.md](docs/evm-testnet-playbook.md)
@@ -24,6 +25,8 @@
 | 充值确认数 | `12` |
 | 充值和锚定链 | 测试环境优先保持一致 |
 | 充值私钥与锚定私钥 | 必须分离，不能复用 |
+| 租用支付模型 | 只保留 `余额支付` 和 `兑换码` |
+| 余额充值入口 | `Stripe`、`钱包支付`、`X402` |
 | 生产云厂商默认 | `Vultr` |
 | 可切换云厂商 | `DigitalOcean`、`AWS` |
 | 自托管调度 | `scheduler` 容器承接 |
@@ -31,6 +34,7 @@
 ## 当前仍待推进
 
 - 真实链上充值 provider、地址托管、确认监听、汇率源和对账。
+- 支付模型收口：租用页只保留余额/兑换码，`Stripe`、钱包支付和 `X402` 下沉到余额充值。
 - 审计 anchor 的测试链实跑、`txHash` / receipt 恢复流程和生产主网决策。
 - 合规统计更细的管理端和控制台展示。
 - 合规模式的产品边界，以及 `Hysteria2` 在合规模式中的去留。
@@ -89,6 +93,10 @@ npm run crypto:bootstrap-testnet -- --chain base-sepolia --whitelist-emails qa@e
 
 - [docs/manual-input-checklist.md](docs/manual-input-checklist.md)
 - [docs/evm-testnet-playbook.md](docs/evm-testnet-playbook.md)
+
+如果任务和支付、余额、充值或兑换码有关，先看：
+
+- [docs/payment-balance-model.md](docs/payment-balance-model.md)
 
 如果任务和产品边界、未完成项或路线图有关，先看：
 

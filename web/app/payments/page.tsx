@@ -67,6 +67,8 @@ export default function PaymentsPage() {
 
   const methodLabels: Record<string, string> = {
     stripe: t("payment.stripe"),
+    wallet: t("payment.wallet"),
+    x402: t("payment.x402"),
     redeem_code: t("payment.redeemCode"),
     crypto: "Crypto",
   };

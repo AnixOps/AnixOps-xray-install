@@ -86,10 +86,12 @@ describe("bootstrap-evm-testnet helpers", () => {
   });
 
   it("bootstraps env output without deploying mock usdt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-bootstrap-"));
+    const envFile = join(dir, "missing.env");
     const result = await bootstrapEvmTestnet({
       chain: "base-sepolia",
       whitelistEmails: "qa@example.com",
-      envFile: "missing.env",
+      envFile,
       topupPrivateKey: "0x" + "1".repeat(64),
       anchorPrivateKey: "0x" + "2".repeat(64),
       deployMockUsdt: false,
