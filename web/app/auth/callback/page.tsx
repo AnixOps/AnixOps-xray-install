@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/store";
+import { normalizeReturnToPath } from "@/lib/auth/redirect";
 import { Button, Card } from "@/components/ui";
 import { useLocaleStore } from "@/lib/i18n/store";
 
@@ -16,6 +17,7 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     const token = searchParams.get("token");
+    const returnTo = normalizeReturnToPath(searchParams.get("returnTo"), "/");
     if (!token) {
       setError(t("auth.magicLink.missingToken"));
       return;
@@ -33,7 +35,7 @@ export default function AuthCallbackPage() {
           return;
         }
         setAuth(data.userId, data.token, data.email, Boolean(data.isAdmin));
-        router.push("/");
+        router.push(returnTo);
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : "Verification failed");
@@ -59,8 +61,8 @@ export default function AuthCallbackPage() {
               ? "这通常表示登录链接已经失效、被使用过，或者当前会话无法完成验证。"
               : "This usually means the link expired, has already been used, or the current session could not complete verification.")
             : (isZh
-              ? "验证成功后会自动回到首页，并恢复你的登录状态与权限。"
-              : "After verification succeeds, you will be returned home automatically with your session and access restored.")}
+              ? "验证成功后会自动回到你发起登录的页面，并恢复你的登录状态与权限。"
+              : "After verification succeeds, you will be returned to the page where you started sign-in with your session and access restored.")}
         </div>
         {error && (
           <Button variant="outline" onClick={() => router.push("/")}>

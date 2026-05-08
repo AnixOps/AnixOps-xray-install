@@ -36,8 +36,24 @@ export function createMagicLinkMailer(config: ServerEnv): Transporter | null {
   });
 }
 
-export function buildMagicLink(frontendUrl: string, token: string): string {
-  return `${frontendUrl.replace(/\/+$/, "")}/auth/callback?token=${encodeURIComponent(token)}`;
+function normalizeReturnToPath(value: string): string {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  if (!normalized.startsWith("/") || normalized.startsWith("//") || normalized.includes("://")) {
+    return "";
+  }
+  return normalized;
+}
+
+export function buildMagicLink(frontendUrl: string, token: string, returnTo = ""): string {
+  const callbackUrl = `${frontendUrl.replace(/\/+$/, "")}/auth/callback?token=${encodeURIComponent(token)}`;
+  const normalizedReturnTo = normalizeReturnToPath(returnTo);
+  if (!normalizedReturnTo) {
+    return callbackUrl;
+  }
+  return `${callbackUrl}&returnTo=${encodeURIComponent(normalizedReturnTo)}`;
 }
 
 export async function sendMagicLinkEmail({
@@ -45,17 +61,19 @@ export async function sendMagicLinkEmail({
   env,
   email,
   token,
+  returnTo = "",
 }: {
   mailer: Transporter | null;
   env: ServerEnv;
   email: string;
   token: string;
+  returnTo?: string;
 }): Promise<void> {
   if (!mailer) {
     throw new Error("SMTP is not configured");
   }
 
-  const link = buildMagicLink(env.FRONTEND_URL, token);
+  const link = buildMagicLink(env.FRONTEND_URL, token, returnTo);
   await mailer.sendMail({
     from: env.SMTP_FROM || env.SMTP_USER,
     to: email,

@@ -42,8 +42,8 @@ describe("magic-link email helpers", () => {
   });
 
   it("builds a normalized callback link", () => {
-    expect(buildMagicLink("https://app.example/", "token with spaces")).toBe(
-      "https://app.example/auth/callback?token=token%20with%20spaces",
+    expect(buildMagicLink("https://app.example/", "token with spaces", "/console/wallet")).toBe(
+      "https://app.example/auth/callback?token=token%20with%20spaces&returnTo=%2Fconsole%2Fwallet",
     );
   });
 });

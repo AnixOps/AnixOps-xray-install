@@ -882,8 +882,8 @@ async function issueSession(userId: string): Promise<string> {
   return token;
 }
 
-async function sendMagicLink(email: string, token: string): Promise<void> {
-  await sendMagicLinkEmail({ mailer, env, email, token });
+async function sendMagicLink(email: string, token: string, returnTo = ""): Promise<void> {
+  await sendMagicLinkEmail({ mailer, env, email, token, returnTo });
 }
 
 // ============================================================
@@ -959,7 +959,9 @@ app.get("/api/compliance/profiles", async (c) => {
 // Auth
 // ============================================================
 app.post("/api/auth/request-link", async (c) => {
-  const { email } = await c.req.json();
+  const body = await c.req.json().catch(() => ({}));
+  const email = typeof body?.email === "string" ? body.email : "";
+  const returnTo = typeof body?.returnTo === "string" ? body.returnTo : "";
   if (!email || !validateEmail(email)) {
     return c.json({ error: "Invalid email format" }, 400);
   }
@@ -981,7 +983,7 @@ app.post("/api/auth/request-link", async (c) => {
   const magicToken = randomUUID();
   await redis.setex(`magic:${magicToken}`, 900, userId);
   try {
-    await sendMagicLink(email, magicToken);
+    await sendMagicLink(email, magicToken, returnTo);
   } catch (error) {
     await redis.del(`magic:${magicToken}`);
     console.error("Failed to send magic link:", getErrorMessage(error));

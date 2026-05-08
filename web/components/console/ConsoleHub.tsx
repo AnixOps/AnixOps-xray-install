@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { MagicLinkGate } from "@/components/auth/MagicLinkGate";
 import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { workerFetch } from "@/lib/api/client";
@@ -254,6 +255,7 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
   const [error, setError] = useState<string | null>(null);
 
   const activeConfig = viewConfig[view];
+  const pagePath = view === "overview" ? "/console" : `/console/${view}`;
 
   const load = async () => {
     if (!token) return;
@@ -265,6 +267,10 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
         cache: "no-store",
       });
       const payload = await res.json();
+      if (res.status === 401) {
+        logout();
+        return;
+      }
       if (!res.ok || payload.error) {
         throw new Error(payload.error || "Failed to load console data");
       }
@@ -278,16 +284,30 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
 
   useEffect(() => {
     if (!token) {
-      router.push("/");
       return;
     }
     void load();
   }, [token, view]);
-
   const navItems = useMemo(() => Object.entries(viewConfig) as Array<[ConsoleView, typeof viewConfig[ConsoleView]]>, []);
 
   if (!token) {
-    return null;
+    return (
+      <main className="min-h-screen bg-background">
+        <div className="border-b border-border/40 bg-background/80">
+          <div className="container mx-auto flex min-h-14 items-center justify-between gap-3 px-4 py-3">
+            <div>
+              <div className="text-lg font-semibold leading-none">AnixOps Console</div>
+              <div className="mt-1 text-xs text-muted-foreground">Wallet, nodes, audit, and referrals</div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => router.push("/")}>Home</Button>
+          </div>
+        </div>
+
+        <div className="container mx-auto px-4 py-6 md:py-10">
+          <MagicLinkGate variant="console" returnTo={pagePath} />
+        </div>
+      </main>
+    );
   }
 
   return (
