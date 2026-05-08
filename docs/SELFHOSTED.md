@@ -121,6 +121,8 @@ docker compose --env-file .env.selfhosted -f docker-compose.selfhosted.yml down
 
 访问: http://localhost:30000
 
+首页保留 `Console Wallet` 登录入口，普通用户可用邮箱魔法链接进入 `/console/wallet`。钱包充值页会显示精确到账金额、网络、过期时间和复制按钮，待确认单据会自动轮询状态。
+
 ## 测试服建议
 
 如果这是测试服，建议保持：

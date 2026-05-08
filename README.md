@@ -11,6 +11,12 @@ Zero-knowledge node deployment platform. One-click provisioning for VLESS Realit
 | **Self-hosted (Free)** | Provide your own cloud API key → automated deployment to your VPS |
 | **Rental ($0.50/hr)** | Pick protocol + duration, pay via Stripe or redeem code, get an exclusive node. 1h minimum, destroy anytime. |
 
+## Account Console / 账户控制台
+
+- Homepage includes a `Console Wallet` login entry for regular users.
+- 普通用户也可以用邮箱魔法链接登录，验证后会回到 `/console/wallet`。
+- The wallet console is where Stripe, wallet payment, and X402 topups are created.
+
 ## Supported Protocols
 
 | Protocol | Transport | Use Case |

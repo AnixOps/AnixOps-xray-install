@@ -39,9 +39,13 @@ It is not a generated OpenAPI spec. It is the human-maintained contract summary 
 ### `GET /api/console/wallet`
 
 - `wallet.balance`: current wallet balance.
-- `wallet.available`: currently same as balance because reserved funds are not modeled separately.
+- `wallet.currency`: current wallet currency, currently `usd`.
+- `wallet.reserved`: currently `0`.
+- `wallet.available`: `max(balance - reserved, 0)`.
+- `wallet.source`: `wallet-ledger` or `legacy-user-balance`.
+- `chainMode`: chain-access hint for the console wallet page. It includes `environment`, `allowlistedOnly`, `allowlisted`, `whitelistSize`, `email`, and a nested `chain` summary.
 - `topups[]`: Stripe wallet topups from `topups`.
-- `cryptoTopups[]`: crypto topup orders from `crypto_topups`.
+- `cryptoTopups[]`: crypto topup orders from `crypto_topups`. Each row includes `asset`, `network`, persisted `rail`, `address`, `expectedAmount`, `receivedAmount`, `fiatAmount`, `currency`, `status`, `txHash`, `confirmations`, `ledgerId`, `createdAt`, `expiresAt`, and `completedAt`.
 - `ledgerEntries[]`: append-only wallet entries from `wallet_ledger`, or legacy payment mapping when no ledger rows exist.
 - `ledgerSource`: `wallet-ledger` or `legacy-payments`.
 
@@ -95,15 +99,25 @@ It is not a generated OpenAPI spec. It is the human-maintained contract summary 
 ### `POST /api/wallet/crypto-topups`
 
 - Request:
-  - `amount` or `fiatAmount`: requested fiat credit amount.
+  - `fiatAmount`: requested fiat credit amount. `amount` is still accepted for backward compatibility.
   - `asset`: currently `USDT` or `USDC`.
   - `network`: currently `TRC20`, `ERC20`, or `POLYGON`.
-  - `rail`: target field for separating ordinary wallet crypto topups from X402-labeled topups. Planned values are `wallet` and `x402`; until the DB field lands, callers should treat this as a product-level routing decision rather than a persisted contract.
+  - `rail`: persisted routing label for separating ordinary wallet crypto topups from X402-labeled topups. Current values are `wallet` and `x402`.
 - Response `topup`:
   - `address`: self-hosted deposit reference string or configured EVM receiver address.
-  - `expectedAmount`: expected crypto amount. In testnet EVM mode this may include a tiny unique suffix so the auto-confirm worker can match transfers safely.
+  - `expectedAmount`: exact crypto amount the user must send.
+  - `receivedAmount`: actual on-chain amount when known, otherwise `null`.
   - `fiatAmount`: credited fiat amount if completed successfully.
+  - `amount`: alias of `fiatAmount` for compatibility with older callers.
+  - `currency`: currently `usd`.
   - `status`: `pending`, `completed`, `short_paid`, `failed`, `expired`, or `cancelled`.
+  - `txHash`: recorded transaction hash when present.
+  - `confirmations`: confirmation count captured with the latest processing state.
+  - `ledgerId`: wallet ledger id when the topup is credited.
+  - `createdAt`, `expiresAt`, `completedAt`: ISO timestamps for the order lifecycle.
+- Response `chainMode`: same console chain-access payload described in `GET /api/console/wallet`.
+
+The console wallet UI now shows the exact expected amount, the deposit address, the expiry time, and the latest status; underpayment is intentionally fail-closed and becomes `short_paid`.
 
 When `CHAIN_ENVIRONMENT=testnet` and EVM topup config is enabled, the server pins `asset` and `network` to the configured test chain instead of trusting arbitrary client input.
 

@@ -6,6 +6,7 @@ Last updated: 2026-05-08
 
 This runbook covers the current self-hosted `crypto_topups` MVP flow:
 
+- the homepage `Console Wallet` login entry sends regular users to `/console/wallet`
 - order created by `POST /api/wallet/crypto-topups`
 - order confirmed by `POST /internal/crypto-topups/:id/confirm`
 - wallet credit written through `wallet_ledger`
@@ -16,6 +17,21 @@ It assumes the current system may use either:
 - the cron-friendly EVM scan worker `scripts/crypto-topup-worker.js`
 
 It is still not a full production listener with external custody, exchange-rate sync, and reconciliation dashboards.
+
+## Console Wallet Flow
+
+The wallet console now standardizes each crypto topup order as a three-step flow:
+
+1. Verify the deposit address, asset, and network shown on the order.
+2. Send the exact `expectedAmount` on-chain.
+3. Wait for confirmations, then refresh status if needed.
+
+Operational notes:
+
+- The UI shows `expectedAmount`, `receivedAmount`, `confirmations`, `expiresAt`, and the current order status.
+- Users can copy the deposit address and tx hash for reconciliation.
+- Pending orders auto-refresh every 15 seconds in the console, but the backend worker remains the source of truth.
+- Overpayment and underpayment are not auto-corrected. Underpayment becomes `short_paid`.
 
 ## Recharge Smoke Verifier
 
@@ -74,9 +90,10 @@ Purpose:
 
 Recommended operation:
 
-1. Run `node scripts/crypto-topup-worker.js --json` every minute on the self-hosted server.
-2. Watch `matched`, `confirmed`, and `ambiguous` in the JSON output.
-3. Treat `ambiguous > 0` as an operator queue, not as an auto-credit signal.
+1. Let the self-hosted scheduler run `scripts/crypto-topup-worker.js` every 2 minutes by default.
+2. Use `node scripts/crypto-topup-worker.js --json` for manual checks or incident handling.
+3. Watch `matched`, `confirmed`, and `ambiguous` in the JSON output.
+4. Treat `ambiguous > 0` as an operator queue, not as an auto-credit signal.
 
 Matching behavior:
 
