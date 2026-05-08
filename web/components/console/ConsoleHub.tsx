@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MagicLinkGate } from "@/components/auth/MagicLinkGate";
 import { useAuthStore } from "@/lib/auth/store";
@@ -164,12 +164,16 @@ interface CryptoTopup {
   rail: string;
   address: string;
   expectedAmount: number;
+  receivedAmount: number | null;
   fiatAmount: number;
   currency: string;
   status: string;
   txHash: string | null;
+  confirmations: number;
+  ledgerId: string | null;
   createdAt: string | null;
   expiresAt: string | null;
+  completedAt: string | null;
 }
 
 type WalletTopupRail = "stripe" | "wallet" | "x402";
@@ -194,6 +198,13 @@ function formatMoney(value: number, currency = "usd") {
     style: "currency",
     currency: currency.toUpperCase(),
   }).format(value || 0);
+}
+
+function formatCryptoAmount(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  }).format(Number(value || 0));
 }
 
 function formatBytes(value: number) {
@@ -224,9 +235,65 @@ function formatCountRatio(numerator: number, denominator: number) {
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   if (["active", "completed", "paid"].includes(status)) return "default";
-  if (["failed", "destroyed", "expired"].includes(status)) return "destructive";
+  if (["failed", "destroyed", "expired", "short_paid", "cancelled"].includes(status)) return "destructive";
   if (["provisioning", "pending", "paused"].includes(status)) return "secondary";
   return "outline";
+}
+
+const FINAL_CRYPTO_TOPUP_STATUSES = new Set(["completed", "short_paid", "expired", "cancelled", "failed"]);
+
+function isFinalCryptoTopupStatus(status: string) {
+  return FINAL_CRYPTO_TOPUP_STATUSES.has(status);
+}
+
+function getCryptoTopupStatusLabel(status: string, isZh: boolean) {
+  switch (status) {
+    case "pending":
+      return isZh ? "待确认" : "Pending";
+    case "completed":
+      return isZh ? "已到账" : "Completed";
+    case "short_paid":
+      return isZh ? "金额不足" : "Short paid";
+    case "expired":
+      return isZh ? "已过期" : "Expired";
+    case "cancelled":
+      return isZh ? "已取消" : "Cancelled";
+    case "failed":
+      return isZh ? "失败" : "Failed";
+    default:
+      return status;
+  }
+}
+
+function getCryptoTopupStatusNote(topup: CryptoTopup, isZh: boolean) {
+  switch (topup.status) {
+    case "pending":
+      return isZh
+        ? "请按预期到账金额精确转入，系统默认每 2 分钟扫描一次链上充值。"
+        : "Send the exact expected amount. The scheduler scans for topups every 2 minutes.";
+    case "completed":
+      return isZh
+        ? "已经入账。若钱包余额列表尚未更新，可点击刷新按钮同步页面。"
+        : "Funds have been credited. Refresh the page if the wallet balance list has not updated yet.";
+    case "short_paid":
+      return isZh
+        ? "到账金额低于预期，系统不会自动入账。请新建一张充值单并按精确金额重新转账。"
+        : "The transfer was below the expected amount, so it was not credited automatically. Create a new topup and resend the exact amount.";
+    case "expired":
+      return isZh
+        ? "这张充值单已经过期，需要重新创建。"
+        : "This topup has expired. Create a new one before transferring.";
+    case "cancelled":
+      return isZh
+        ? "这张充值单已取消。"
+        : "This topup has been cancelled.";
+    case "failed":
+      return isZh
+        ? "充值处理失败，请检查链上交易或联系支持。"
+        : "Topup processing failed. Check the on-chain transaction or contact support.";
+    default:
+      return "";
+  }
 }
 
 function buildAuditSummary(data: AuditData): AuditSummary {
@@ -250,6 +317,7 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
   const token = useAuthStore((s) => s.token);
   const email = useAuthStore((s) => s.email);
   const logout = useAuthStore((s) => s.logout);
+  const loadRequestRef = useRef(0);
   const [data, setData] = useState<ConsoleData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -257,16 +325,25 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
   const activeConfig = viewConfig[view];
   const pagePath = view === "overview" ? "/console" : `/console/${view}`;
 
-  const load = async () => {
+  const load = async (options: { quiet?: boolean } = {}) => {
     if (!token) return;
-    setLoading(true);
-    setError(null);
+    const requestId = ++loadRequestRef.current;
+    const suppressErrors = Boolean(options.quiet && data);
+    const showLoading = !suppressErrors;
+
+    if (showLoading) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await workerFetch(activeConfig.path, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
       const payload = await res.json();
+      if (requestId !== loadRequestRef.current) {
+        return;
+      }
       if (res.status === 401) {
         logout();
         return;
@@ -276,9 +353,19 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
       }
       setData(payload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load console data");
+      if (requestId !== loadRequestRef.current) {
+        return;
+      }
+      if (!suppressErrors) {
+        setError(err instanceof Error ? err.message : "Failed to load console data");
+      }
     } finally {
-      setLoading(false);
+      if (requestId !== loadRequestRef.current) {
+        return;
+      }
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -356,14 +443,14 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
               <h1 className="text-2xl font-semibold tracking-tight">{activeConfig.title}</h1>
               <p className="mt-1 text-sm text-muted-foreground">Account data is loaded from the self-hosted API.</p>
             </div>
-            <Button variant="outline" onClick={load} disabled={loading}>
+            <Button variant="outline" onClick={() => void load()} disabled={loading}>
               {loading ? "Refreshing" : "Refresh"}
             </Button>
           </div>
 
           {loading && <LoadingState />}
-          {error && !loading && <ErrorState message={error} onRetry={load} />}
-          {!loading && !error && data && <ConsoleContent view={view} data={data} />}
+          {error && !loading && <ErrorState message={error} onRetry={() => void load()} />}
+          {!loading && !error && data && <ConsoleContent view={view} data={data} onReload={() => void load({ quiet: true })} />}
         </section>
       </div>
     </main>
@@ -393,10 +480,18 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function ConsoleContent({ view, data }: { view: ConsoleView; data: ConsoleData }) {
+function ConsoleContent({
+  view,
+  data,
+  onReload,
+}: {
+  view: ConsoleView;
+  data: ConsoleData;
+  onReload?: () => Promise<void> | void;
+}) {
   if (view === "overview") return <OverviewView data={data as OverviewData} />;
   if (view === "nodes") return <NodesView data={data as NodesData} />;
-  if (view === "wallet") return <WalletView data={data as WalletData} />;
+  if (view === "wallet") return <WalletView data={data as WalletData} onReload={onReload} />;
   if (view === "audit") return <AuditView data={data as AuditData} />;
   return <ReferralsView data={data as ReferralsData} />;
 }
@@ -421,10 +516,10 @@ function NodesView({ data }: { data: NodesData }) {
   return <NodeList title="Nodes" nodes={data.nodes} empty="No nodes yet." />;
 }
 
-function WalletView({ data }: { data: WalletData }) {
+function WalletView({ data, onReload }: { data: WalletData; onReload?: () => Promise<void> | void }) {
   return (
     <div className="space-y-4">
-      <WalletTopupPanel chainMode={data.chainMode} />
+      <WalletTopupPanel chainMode={data.chainMode} onReload={onReload} />
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric label="Balance" value={formatMoney(data.wallet.balance, data.wallet.currency)} />
         <Metric label="Topups" value={String(data.topups.length)} />
@@ -451,18 +546,31 @@ function WalletView({ data }: { data: WalletData }) {
   );
 }
 
-function WalletTopupPanel({ chainMode }: { chainMode?: WalletData["chainMode"] }) {
+function WalletTopupPanel({
+  chainMode,
+  onReload,
+}: {
+  chainMode?: WalletData["chainMode"];
+  onReload?: () => Promise<void> | void;
+}) {
   const token = useAuthStore((s) => s.token);
   const { locale } = useLocaleStore();
   const isZh = locale === "zh";
   const [amount, setAmount] = useState("10");
   const [rail, setRail] = useState<WalletTopupRail>("stripe");
   const [submitting, setSubmitting] = useState(false);
+  const [refreshingTopup, setRefreshingTopup] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [createdTopup, setCreatedTopup] = useState<CryptoTopup | null>(null);
+  const [copiedField, setCopiedField] = useState<"address" | "txHash" | null>(null);
 
   const canUseChainTopups = !chainMode?.allowlistedOnly || chainMode.allowlisted;
   const chainRailDisabled = !canUseChainTopups;
+  const createdTopupId = createdTopup?.id || null;
+  const createdTopupExpectedAmount = createdTopup ? formatCryptoAmount(createdTopup.expectedAmount) : "0";
+  const notifyWalletReload = () => {
+    void onReload?.();
+  };
 
   useEffect(() => {
     if (chainRailDisabled && rail !== "stripe") {
@@ -470,10 +578,108 @@ function WalletTopupPanel({ chainMode }: { chainMode?: WalletData["chainMode"] }
     }
   }, [chainRailDisabled, rail]);
 
+  useEffect(() => {
+    setCopiedField(null);
+  }, [createdTopupId]);
+
+  const createdTopupStatus = createdTopup?.status || null;
+
+  useEffect(() => {
+    if (!createdTopupId || !createdTopupStatus || isFinalCryptoTopupStatus(createdTopupStatus)) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      if (cancelled || !token) {
+        return;
+      }
+
+      try {
+        await refreshCreatedTopup({ quiet: true, isCancelled: () => cancelled });
+      } catch {
+        // Silent polling keeps the flow calm; the manual refresh button surfaces errors.
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [createdTopupId, createdTopupStatus, token]);
+
   const setRailAndClear = (nextRail: WalletTopupRail) => {
     setRail(nextRail);
     setMessage(null);
     setCreatedTopup(null);
+    setCopiedField(null);
+  };
+
+  const refreshCreatedTopup = async (options: { quiet?: boolean; isCancelled?: () => boolean } = {}) => {
+    if (!token || !createdTopupId) {
+      return;
+    }
+    const quiet = Boolean(options.quiet);
+
+    if (!quiet) {
+      setRefreshingTopup(true);
+      setMessage(null);
+    }
+
+    try {
+      const res = await workerFetch(`/api/wallet/crypto-topups/${createdTopupId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok || data.error || !data.topup) {
+        throw new Error(data.error || (isZh ? "刷新充值状态失败。" : "Failed to refresh topup status."));
+      }
+      const nextTopup = data.topup as CryptoTopup;
+      if (options.isCancelled?.()) {
+        return;
+      }
+      const previousStatus = createdTopupStatus;
+      setCreatedTopup(nextTopup);
+      if (options.isCancelled?.()) {
+        return;
+      }
+      if (nextTopup.status !== "pending" && nextTopup.status !== previousStatus) {
+        notifyWalletReload();
+      }
+      if (!quiet) {
+        setMessage(
+          isZh
+            ? "充值状态已刷新。"
+            : "Topup status refreshed.",
+        );
+      }
+    } catch (error) {
+      if (!quiet) {
+        setMessage(error instanceof Error ? error.message : (isZh ? "刷新充值状态失败。" : "Failed to refresh topup status."));
+      }
+    } finally {
+      if (!quiet) {
+        setRefreshingTopup(false);
+      }
+    }
+  };
+
+  const copyText = async (text: string, field: "address" | "txHash") => {
+    if (!text) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+    } catch {
+      setMessage(isZh ? "复制失败，请手动选择文本。" : "Copy failed. Please select the text manually.");
+    }
   };
 
   const handleTopup = async () => {
@@ -544,10 +750,11 @@ function WalletTopupPanel({ chainMode }: { chainMode?: WalletData["chainMode"] }
         throw new Error(data.error || "Failed to create crypto topup");
       }
       setCreatedTopup(data.topup);
+      notifyWalletReload();
       setMessage(
         isZh
-          ? `已创建 ${data.topup.rail} 充值，请按下面地址转入。`
-          : `Created a ${data.topup.rail} topup. Send funds to the address below.`,
+          ? `已创建 ${data.topup.rail} 充值单，请在 ${formatDate(data.topup.expiresAt)} 前按 ${formatCryptoAmount(data.topup.expectedAmount)} ${data.topup.asset} / ${data.topup.network} 精确转入。`
+          : `Created a ${data.topup.rail} topup order. Send exactly ${formatCryptoAmount(data.topup.expectedAmount)} ${data.topup.asset} on ${data.topup.network} before ${formatDate(data.topup.expiresAt)}.`,
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to create topup");
@@ -651,9 +858,13 @@ function WalletTopupPanel({ chainMode }: { chainMode?: WalletData["chainMode"] }
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-6 text-muted-foreground">
-          {isZh
-            ? "Stripe 会跳转到结账页；钱包支付和 X402 会创建可审计的链上充值单。"
-            : "Stripe redirects to checkout; wallet payment and X402 create an auditable on-chain topup."}
+          {rail === "stripe"
+            ? (isZh
+              ? "Stripe 会跳转到结账页。"
+              : "Stripe redirects to checkout.")
+            : (isZh
+              ? "链上充值请只按预期到账金额转入，系统不会为多转或少转自动修正。"
+              : "For on-chain topups, send the exact expected amount. Overpaying or underpaying will not be auto-corrected.")}
         </div>
         <Button onClick={handleTopup} disabled={submitting} className="h-11 px-5">
           {submitting
@@ -672,28 +883,135 @@ function WalletTopupPanel({ chainMode }: { chainMode?: WalletData["chainMode"] }
 
       {createdTopup && (
         <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="font-semibold tracking-[-0.02em]">
-              {isZh ? "充值单已创建" : "Topup created"}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                {isZh ? "标准充值单" : "Standard topup order"}
+              </div>
+              <div className="mt-1 text-lg font-semibold tracking-[-0.02em]">
+                {isZh ? "按以下步骤完成转账" : "Complete the transfer in order"}
+              </div>
             </div>
-            <Badge variant="outline" className="rounded-full px-3">
-              {createdTopup.rail}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={statusVariant(createdTopup.status)} className="rounded-full px-3">
+                {getCryptoTopupStatusLabel(createdTopup.status, isZh)}
+              </Badge>
+              <Badge variant="outline" className="rounded-full px-3">
+                {createdTopup.rail}
+              </Badge>
+              <Button variant="outline" size="sm" onClick={() => void refreshCreatedTopup()} disabled={refreshingTopup}>
+                {refreshingTopup ? (isZh ? "刷新中..." : "Refreshing...") : (isZh ? "刷新状态" : "Refresh status")}
+              </Button>
+            </div>
           </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <div>{isZh ? "金额" : "Amount"}: {formatMoney(createdTopup.fiatAmount, createdTopup.currency)}</div>
-            <div>{isZh ? "网络" : "Network"}: {createdTopup.network}</div>
-            <div>{isZh ? "资产" : "Asset"}: {createdTopup.asset}</div>
-            <div>{isZh ? "地址" : "Address"}: <span className="font-mono text-xs">{shortId(createdTopup.address)}</span></div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {[
+              {
+                step: "1",
+                title: isZh ? "核对地址" : "Verify address",
+                body: isZh ? "复制地址后，确认网络和资产都与这张单一致。" : "Copy the address, then verify the network and asset match this order.",
+              },
+              {
+                step: "2",
+                title: isZh ? "精确转账" : "Send exact amount",
+                body: isZh ? `只转 ${createdTopupExpectedAmount} ${createdTopup.asset}，不要多转也不要少转。` : `Send exactly ${createdTopupExpectedAmount} ${createdTopup.asset}. Do not overpay or underpay.`,
+              },
+              {
+                step: "3",
+                title: isZh ? "等待确认" : "Wait for confirmations",
+                body: isZh ? "链上确认后刷新状态；余额列表若未更新，再点一次页面刷新。" : "Wait for confirmations, then refresh the status. If the balance list still lags, use the page refresh button.",
+              },
+            ].map((item) => (
+              <div key={item.step} className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-950 text-xs font-semibold text-white">
+                    {item.step}
+                  </div>
+                  <div className="font-medium tracking-[-0.02em]">{item.title}</div>
+                </div>
+                <p className="mt-2 text-xs leading-6 text-muted-foreground">{item.body}</p>
+              </div>
+            ))}
           </div>
-          <div className="mt-3 break-all rounded-[1.1rem] bg-white px-3 py-2 font-mono text-xs text-foreground">
-            {createdTopup.address}
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+              <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                {isZh ? "精确到账金额" : "Exact amount"}
+              </div>
+              <div className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+                {createdTopupExpectedAmount} {createdTopup.asset}
+              </div>
+              <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                <div>{isZh ? "网络" : "Network"}: {createdTopup.network}</div>
+                <div>{isZh ? "法币金额" : "Fiat amount"}: {formatMoney(createdTopup.fiatAmount, createdTopup.currency)}</div>
+                <div>{isZh ? "确认数" : "Confirmations"}: {createdTopup.confirmations || 0}</div>
+                <div>{isZh ? "过期时间" : "Expires"}: {formatDate(createdTopup.expiresAt)}</div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+              <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                {isZh ? "状态" : "Status"}
+              </div>
+              <div className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+                {getCryptoTopupStatusLabel(createdTopup.status, isZh)}
+              </div>
+              <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                {getCryptoTopupStatusNote(createdTopup, isZh)}
+              </p>
+              <div className="mt-3 grid gap-2 text-xs text-muted-foreground">
+                <div>{isZh ? "创建时间" : "Created"}: {formatDate(createdTopup.createdAt)}</div>
+                {createdTopup.receivedAmount != null && (
+                  <div>{isZh ? "链上到账" : "Received"}: {formatCryptoAmount(createdTopup.receivedAmount)} {createdTopup.asset}</div>
+                )}
+                {createdTopup.completedAt && (
+                  <div>{isZh ? "完成时间" : "Completed"}: {formatDate(createdTopup.completedAt)}</div>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <span>{isZh ? "预期到账" : "Expected"}: {createdTopup.expectedAmount} {createdTopup.asset}</span>
-            <span>·</span>
-            <span>{isZh ? "过期时间" : "Expires"}: {formatDate(createdTopup.expiresAt)}</span>
+
+          <div className="mt-4 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                  {isZh ? "收款地址" : "Deposit address"}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {isZh ? "请按上面的精确金额转入，并确认网络为" : "Send the exact amount above and confirm the network is"} {createdTopup.network}.
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void copyText(createdTopup.address, "address")}>
+                {copiedField === "address" ? (isZh ? "已复制" : "Copied") : (isZh ? "复制地址" : "Copy address")}
+              </Button>
+            </div>
+            <div className="mt-3 break-all rounded-[1.1rem] bg-slate-50 px-3 py-3 font-mono text-xs text-foreground">
+              {createdTopup.address}
+            </div>
           </div>
+
+          {createdTopup.txHash && (
+            <div className="mt-4 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                    {isZh ? "交易哈希" : "Transaction hash"}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {isZh ? "如果你已经完成转账，可以把哈希保存下来用于对账。" : "If the transfer is complete, keep the hash for reconciliation."}
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => void copyText(createdTopup.txHash || "", "txHash")}>
+                  {copiedField === "txHash" ? (isZh ? "已复制" : "Copied") : (isZh ? "复制哈希" : "Copy hash")}
+                </Button>
+              </div>
+              <div className="mt-3 break-all rounded-[1.1rem] bg-slate-50 px-3 py-3 font-mono text-xs text-foreground">
+                {createdTopup.txHash}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -902,6 +1220,9 @@ function ReferralsView({ data }: { data: ReferralsData }) {
 }
 
 function CryptoTopupList({ topups }: { topups: CryptoTopup[] }) {
+  const { locale } = useLocaleStore();
+  const isZh = locale === "zh";
+
   return (
     <Card className="overflow-hidden">
       <div className="border-b p-4">
@@ -919,12 +1240,23 @@ function CryptoTopupList({ topups }: { topups: CryptoTopup[] }) {
                   <Badge variant="outline" className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
                     {topup.rail}
                   </Badge>
+                  <Badge variant={statusVariant(topup.status)} className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
+                    {getCryptoTopupStatusLabel(topup.status, isZh)}
+                  </Badge>
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">{shortId(topup.address)} · {formatDate(topup.createdAt)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {shortId(topup.address)} · {formatDate(topup.createdAt)}
+                </div>
+                <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                  {formatCryptoAmount(topup.expectedAmount)} {topup.asset}
+                  {topup.receivedAmount != null ? ` · ${formatCryptoAmount(topup.receivedAmount)} ${topup.asset} ${isZh ? "已到账" : "received"}` : ""}
+                  {topup.confirmations ? ` · ${topup.confirmations} ${isZh ? "确认" : "conf"}` : ""}
+                  {topup.completedAt ? ` · ${isZh ? "完成于" : "completed"} ${formatDate(topup.completedAt)}` : ""}
+                </div>
               </div>
               <div className="text-left md:text-right">
                 <div className="font-medium">{formatMoney(topup.fiatAmount, topup.currency)}</div>
-                <Badge variant={statusVariant(topup.status)}>{topup.status}</Badge>
+                <Badge variant={statusVariant(topup.status)}>{getCryptoTopupStatusLabel(topup.status, isZh)}</Badge>
               </div>
             </div>
           ))}
