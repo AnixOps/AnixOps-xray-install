@@ -1,10 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowUpRight } from "lucide-react";
 import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
-import { Button, Card, Badge, useToast } from "@/components/ui";
+import { isFormalRelease } from "@/lib/release-profile";
+import { formatRedeemCodeTypeLabel } from "@/lib/payment-records";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import { Button, Card, Badge, Tabs, TabsContent, TabsList, TabsTrigger, useToast } from "@/components/ui";
 import { groupPaymentsByMethod } from "@/lib/payment-records";
 import { workerFetch } from "@/lib/api/client";
 
@@ -38,6 +43,7 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isZh = locale === "zh";
+  const formalRelease = isFormalRelease();
 
   useEffect(() => {
     if (!token) {
@@ -67,10 +73,10 @@ export default function PaymentsPage() {
   }, [router, showToast, t, token]);
 
   const methodLabels: Record<string, string> = {
-    stripe: t("payment.stripe"),
+    stripe: formalRelease ? (isZh ? "历史 Stripe" : "Legacy Stripe") : t("payment.stripe"),
     wallet: t("payment.wallet"),
-    x402: t("payment.x402"),
-    redeem_code: t("payment.redeemCode"),
+    x402: formalRelease ? (isZh ? "历史 X402" : "Legacy X402") : (isZh ? "X402 直付" : "X402 direct payment"),
+    redeem_code: formatRedeemCodeTypeLabel("duration", isZh),
     crypto: "Crypto",
   };
 
@@ -120,23 +126,53 @@ export default function PaymentsPage() {
     },
     {
       key: "redeem_code",
-      title: isZh ? "兑换码租用" : "Redeem-code rentals",
-      description: isZh ? "通过兑换码创建的租用记录。" : "Rentals created through redeem-code redemption.",
-      empty: isZh ? "这里还没有兑换码租用记录。" : "No redeem-code rentals yet.",
+      title: formatRedeemCodeTypeLabel("duration", isZh),
+      description: formalRelease
+        ? (isZh ? "通过 CDK 单次型创建的租用记录。" : "Rentals created through CDK single-use codes.")
+        : (isZh ? "通过兑换码创建的租用记录。" : "Rentals created through redeem-code redemption."),
+      empty: formalRelease
+        ? (isZh ? "这里还没有 CDK 单次型租用记录。" : "No CDK single-use rentals yet.")
+        : (isZh ? "这里还没有兑换码租用记录。" : "No redeem-code rentals yet."),
       records: totals.buckets.redeem_code,
     },
-    {
-      key: "legacy",
-      title: isZh ? "历史直付" : "Legacy direct payments",
-      description: isZh ? "Stripe、X402 和旧版直接支付记录。" : "Stripe, X402, and older direct payment records.",
-      empty: isZh ? "这里还没有历史直付记录。" : "No legacy direct payments yet.",
-      records: totals.buckets.legacy,
-    },
+    ...(formalRelease
+      ? []
+      : [
+          {
+            key: "x402",
+            title: isZh ? "X402 直付" : "X402 direct payments",
+            description: isZh ? "历史 X402 直接支付记录。" : "Historical X402 direct payment records.",
+            empty: isZh ? "这里还没有 X402 直付记录。" : "No X402 direct payment records yet.",
+            records: totals.buckets.x402,
+          },
+          {
+            key: "legacy",
+            title: isZh ? "历史直付" : "Legacy direct payments",
+            description: isZh ? "Stripe 和更早的直接支付记录。" : "Stripe and older direct payment records.",
+            empty: isZh ? "这里还没有历史直付记录。" : "No legacy direct payments yet.",
+            records: totals.buckets.legacy,
+          },
+        ]),
+  ] as const;
+  const defaultPaymentSection = paymentSections.find((section) => section.records.length > 0)?.key || paymentSections[0].key;
+  const summaryCards = [
+    { label: isZh ? "记录数" : "Records", value: String(totals.count) },
+    { label: isZh ? "已完成" : "Completed volume", value: `$${totals.revenue.toFixed(2)}` },
+    { label: isZh ? "待处理" : "Pending", value: String(totals.pending) },
+    { label: isZh ? "钱包直付" : "Wallet", value: String(totals.buckets.wallet.length) },
+    { label: formalRelease ? (isZh ? "CDK 单次型" : "CDK single-use") : (isZh ? "兑换码" : "Redeem code"), value: String(totals.buckets.redeem_code.length) },
+    ...(!formalRelease
+      ? [{ label: isZh ? "历史直付" : "Legacy", value: String(totals.buckets.legacy.length) }]
+      : []),
   ] as const;
 
   if (loading) {
     return (
-      <main className="apple-shell min-h-screen px-4 py-12">
+      <WorkspaceShell
+        header={(
+          <PageHeader title={t("payment.history")} onBack={() => router.push("/")} />
+        )}
+      >
         <StatusScreen
           eyebrow="Payments"
           title={isZh ? "正在载入支付记录。" : "Loading payment history."}
@@ -144,15 +180,18 @@ export default function PaymentsPage() {
           tone="neutral"
           pulse
         />
-      </main>
+      </WorkspaceShell>
     );
   }
 
   if (error) {
     return (
-      <main className="apple-shell min-h-screen px-4 py-8 md:py-14">
-        <div className="mx-auto max-w-5xl space-y-6">
+      <WorkspaceShell
+        header={(
           <PageHeader title={t("payment.history")} onBack={() => router.push("/")} />
+        )}
+      >
+        <div className="space-y-6">
           <StatusScreen
             eyebrow="Payments"
             title={isZh ? "支付记录暂时不可用。" : "Payment history is temporarily unavailable."}
@@ -171,22 +210,22 @@ export default function PaymentsPage() {
             )}
           />
         </div>
-      </main>
+      </WorkspaceShell>
     );
   }
 
   return (
-    <main className="apple-shell min-h-screen px-4 py-8 md:py-14">
-      <div className="animate-rise mx-auto max-w-5xl space-y-6">
+    <WorkspaceShell
+      header={(
         <PageHeader title={t("payment.history")} onBack={() => router.push("/")} />
+      )}
+    >
+      <div className="animate-rise space-y-6">
 
-        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-          <SummaryCard label={isZh ? "记录数" : "Records"} value={String(totals.count)} />
-          <SummaryCard label={isZh ? "已完成" : "Completed volume"} value={`$${totals.revenue.toFixed(2)}`} />
-          <SummaryCard label={isZh ? "待处理" : "Pending"} value={String(totals.pending)} />
-          <SummaryCard label={isZh ? "钱包直付" : "Wallet"} value={String(totals.buckets.wallet.length)} />
-          <SummaryCard label={isZh ? "兑换码" : "Redeem code"} value={String(totals.buckets.redeem_code.length)} />
-          <SummaryCard label={isZh ? "历史直付" : "Legacy"} value={String(totals.buckets.legacy.length)} />
+        <div className={`grid gap-4 md:grid-cols-3 ${formalRelease ? "xl:grid-cols-5" : "xl:grid-cols-6"}`}>
+          {summaryCards.map((card) => (
+            <SummaryCard key={card.label} label={card.label} value={card.value} />
+          ))}
         </div>
 
         {payments.length === 0 ? (
@@ -197,25 +236,37 @@ export default function PaymentsPage() {
             tone="neutral"
           />
         ) : (
-          <div className="grid gap-4 xl:grid-cols-3">
+          <Tabs defaultValue={defaultPaymentSection} className="space-y-4">
+            <TabsList className="flex h-auto w-full flex-wrap gap-2 rounded-[1.5rem] border border-black/5 bg-white/70 p-2">
+              {paymentSections.map((section) => (
+                <TabsTrigger key={section.key} value={section.key} className="rounded-xl px-4 py-2 text-xs font-semibold">
+                  {section.title}
+                  <span className="ml-2 rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {section.records.length}
+                  </span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
             {paymentSections.map((section) => (
-              <PaymentGroupSection
-                key={section.key}
-                title={section.title}
-                description={section.description}
-                empty={section.empty}
-                records={section.records}
-                isZh={isZh}
-                methodLabels={methodLabels}
-                statusLabels={statusLabels}
-                badgeVariants={badgeVariants}
-                rentalStatusLabels={rentalStatusLabels}
-              />
+              <TabsContent key={section.key} value={section.key}>
+                <PaymentGroupSection
+                  title={section.title}
+                  description={section.description}
+                  empty={section.empty}
+                  records={section.records}
+                  isZh={isZh}
+                  methodLabels={methodLabels}
+                  statusLabels={statusLabels}
+                  badgeVariants={badgeVariants}
+                  rentalStatusLabels={rentalStatusLabels}
+                />
+              </TabsContent>
             ))}
-          </div>
+          </Tabs>
         )}
       </div>
-    </main>
+    </WorkspaceShell>
   );
 }
 
@@ -330,7 +381,16 @@ function PaymentRecordCard({
           </div>
           <div className="text-sm leading-6 text-muted-foreground">
             {isZh ? "租用单号" : "Rental"}:{" "}
-            <span className="font-mono text-xs">{payment.rental_id || "—"}</span>
+            {payment.rental_id ? (
+              <Link
+                href={`/payments/${payment.rental_id}`}
+                className="font-mono text-xs font-medium text-foreground underline decoration-foreground/20 underline-offset-4 transition hover:decoration-foreground"
+              >
+                {payment.rental_id}
+              </Link>
+            ) : (
+              <span className="font-mono text-xs">{payment.rental_id || "—"}</span>
+            )}
           </div>
           <div className="text-xs text-muted-foreground">
             {new Date(payment.created_at).toLocaleDateString()}{" "}
@@ -403,6 +463,15 @@ function NodeSnapshot({
           </div>
         ))}
       </div>
+      {payment.rental_id ? (
+        <Link
+          href={`/payments/${payment.rental_id}`}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:border-white/20 hover:bg-white/16"
+        >
+          {isZh ? "打开节点详情" : "Open node details"}
+          <ArrowUpRight className="h-4 w-4" />
+        </Link>
+      ) : null}
     </div>
   );
 }

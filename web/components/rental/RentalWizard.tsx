@@ -7,6 +7,9 @@ import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { PROTOCOL_INFO, RENTAL_PLANS } from "@/lib/deploy/types";
 import type { RentalPaymentMethod } from "@/lib/rental/rules";
+import { isFormalRelease } from "@/lib/release-profile";
+import { formatRedeemCodeTypeLabel } from "@/lib/payment-records";
+import { WizardAside, WizardFrame, WizardSummaryRow as SummaryRow } from "@/components/layout/WizardLayout";
 import { Button, Card, Badge, Input, Label } from "@/components/ui";
 import { workerFetch } from "@/lib/api/client";
 
@@ -53,6 +56,7 @@ export function RentalWizard() {
   const [restored, setRestored] = useState(false);
   const [complianceProfiles, setComplianceProfiles] = useState<ComplianceProfile[]>([]);
   const [complianceProfileId, setComplianceProfileId] = useState("standard");
+  const formalRelease = isFormalRelease();
 
   useEffect(() => {
     if (restored) return;
@@ -117,10 +121,19 @@ export function RentalWizard() {
       });
       const data = await res.json();
       if (data.valid) {
-        setRedeemCodeValid(true);
-        const matchingPlan = RENTAL_PLANS.find((item) => item.durationHours === data.durationHours);
-        if (matchingPlan) {
-          setRentalPlan(matchingPlan);
+        if (data.codeType === "wallet") {
+          setRedeemCodeError(
+            isZh
+              ? `这是 ${formatRedeemCodeTypeLabel("wallet", true)}，请前往控制台钱包页兑换。`
+              : `This is a ${formatRedeemCodeTypeLabel("wallet", false)}. Redeem it in Console Wallet.`,
+          );
+          setRedeemCodeValid(false);
+        } else {
+          setRedeemCodeValid(true);
+          const matchingPlan = RENTAL_PLANS.find((item) => item.durationHours === data.durationHours);
+          if (matchingPlan) {
+            setRentalPlan(matchingPlan);
+          }
         }
       } else {
         setRedeemCodeError(data.error || t("payment.redeemCode.invalid"));
@@ -139,9 +152,12 @@ export function RentalWizard() {
   const selectedTotal = rentalPlan ? `$${rentalPlan.totalPrice.toFixed(2)}` : "—";
   const selectedComplianceProfile = complianceProfiles.find((profile) => profile.id === complianceProfileId) || null;
   const selectedComplianceLabel = selectedComplianceProfile?.name || "Standard";
+  const redeemCodePaymentLabel = formalRelease
+    ? formatRedeemCodeTypeLabel("duration", isZh)
+    : t("payment.redeemCode");
   const paymentMethodLabels: Record<CheckoutPaymentMethod, string> = {
     wallet: t("payment.wallet"),
-    redeem_code: t("payment.redeemCode"),
+    redeem_code: redeemCodePaymentLabel,
   };
   const selectedPaymentLabel = paymentMethodLabels[paymentMethod];
   const complianceBlocksProtocol = Boolean(
@@ -375,8 +391,14 @@ export function RentalWizard() {
                 />
                 <PaymentMethodCard
                   active={paymentMethod === "redeem_code"}
-                  title={t("payment.redeemCode")}
-                  body={isZh ? "直接匹配兑换码时长并跳过付款。" : "Match a code to duration and skip checkout entirely."}
+                  title={redeemCodePaymentLabel}
+                  body={formalRelease
+                    ? (isZh
+                      ? "单次型 CDK 在这里直接兑换，余额型 CDK 请去控制台钱包页。"
+                      : "Redeem single-use CDKs here. Use Console Wallet for balance CDKs.")
+                    : (isZh
+                      ? "直接匹配兑换码时长并跳过付款。"
+                      : "Match a code to duration and skip checkout entirely.")}
                   onClick={() => {
                     setPaymentMethod("redeem_code");
                     setBalanceNotice(null);
@@ -384,13 +406,39 @@ export function RentalWizard() {
                 />
               </div>
               <div className="rounded-[1.35rem] border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-muted-foreground">
-                {isZh ? (
+                {formalRelease ? (
+                  isZh ? (
+                    <>
+                      余额直充型 CDK 在{" "}
+                      <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">
+                        控制台钱包页
+                      </Link>
+                      兑换，兑换后再回到这里用余额支付。
+                    </>
+                  ) : (
+                    <>
+                      Balance CDKs are redeemed in{" "}
+                      <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">
+                        Console Wallet
+                      </Link>
+                      , then you return here and pay with wallet balance.
+                    </>
+                  )
+                ) : isZh ? (
                   <>
-                    余额充值入口在 <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">控制台钱包页</Link>，Stripe、钱包支付和 X402 都从那里进入。
+                    余额充值入口在{" "}
+                    <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">
+                      控制台钱包页
+                    </Link>
+                    ，Stripe、钱包支付和 X402 都从那里进入，但它们是不同的 rail。
                   </>
                 ) : (
                   <>
-                    Wallet topups live in <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">Console Wallet</Link>, where Stripe, wallet payment, and X402 are handled.
+                    Wallet topups live in{" "}
+                    <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">
+                      Console Wallet
+                    </Link>
+                    , where Stripe, wallet payment, and X402 are handled as separate rails.
                   </>
                 )}
               </div>
@@ -681,64 +729,6 @@ export function RentalWizard() {
   return null;
 }
 
-function WizardFrame({
-  eyebrow,
-  title,
-  description,
-  stepLabel,
-  children,
-  aside,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  stepLabel: string;
-  children: React.ReactNode;
-  aside: React.ReactNode;
-}) {
-  return (
-    <div className="animate-rise grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <Card className="space-y-7 p-6 md:p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="section-eyebrow">{eyebrow}</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">{title}</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">{description}</p>
-          </div>
-          <div className="metric-pill self-start">{stepLabel}</div>
-        </div>
-        {children}
-      </Card>
-      <div className="space-y-4">{aside}</div>
-    </div>
-  );
-}
-
-function WizardAside({
-  title,
-  rows,
-  footer,
-}: {
-  title: string;
-  rows: Array<{ label: string; value: string }>;
-  footer?: React.ReactNode;
-}) {
-  return (
-    <Card className="space-y-5 p-5">
-      <div>
-        <div className="section-eyebrow">Snapshot</div>
-        <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{title}</h3>
-      </div>
-      <div className="space-y-3">
-        {rows.map((row) => (
-          <SummaryRow key={row.label} label={row.label} value={row.value} />
-        ))}
-      </div>
-      {footer}
-    </Card>
-  );
-}
-
 function PaymentMethodCard({
   active,
   title,
@@ -757,25 +747,6 @@ function PaymentMethodCard({
         <div className="text-sm leading-6 text-muted-foreground">{body}</div>
       </div>
     </button>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-  emphasize = false,
-}: {
-  label: string;
-  value: string;
-  emphasize?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-[1.2rem] border border-black/5 bg-white/70 px-4 py-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={`text-right text-sm ${emphasize ? "font-semibold text-primary" : "font-medium text-foreground"}`}>
-        {value}
-      </span>
-    </div>
   );
 }
 

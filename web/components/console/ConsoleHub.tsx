@@ -2,12 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Home, LayoutDashboard, LogOut, RefreshCw, ScrollText, Server, Users, Wallet } from "lucide-react";
 import { MagicLinkGate } from "@/components/auth/MagicLinkGate";
 import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { workerFetch } from "@/lib/api/client";
-import { formatPaymentMethodLabel, groupPaymentsByMethod } from "@/lib/payment-records";
-import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { groupPaymentsByMethod, formatRedeemCodeTypeLabel } from "@/lib/payment-records";
+import { isFormalRelease } from "@/lib/release-profile";
+import { formatTopupRailDescription, formatTopupRailLabel } from "@/lib/topup-rails";
+import { Badge, Button, Card, Input, Label, Tabs, TabsList, TabsTrigger } from "@/components/ui";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import { WalletEntriesTable } from "@/components/console/WalletEntriesTable";
+import { CryptoTopupsTable } from "@/components/console/CryptoTopupsTable";
+import { ConsoleNodesTable } from "@/components/console/ConsoleNodesTable";
+import { ConsoleAuditTable } from "@/components/console/ConsoleAuditTable";
+import type { LucideIcon } from "lucide-react";
 
 export type ConsoleView = "overview" | "nodes" | "wallet" | "audit" | "referrals";
 
@@ -180,12 +189,19 @@ type WalletTopupRail = "stripe" | "wallet" | "x402";
 
 type ConsoleData = OverviewData | NodesData | WalletData | AuditData | ReferralsData;
 
-const viewConfig: Record<ConsoleView, { label: string; path: string; title: string }> = {
-  overview: { label: "Overview", path: "/api/console/overview", title: "Account Overview" },
-  nodes: { label: "Nodes", path: "/api/console/nodes", title: "My Nodes" },
-  wallet: { label: "Wallet", path: "/api/console/wallet", title: "Wallet" },
-  audit: { label: "Audit", path: "/api/console/audit", title: "Audit" },
-  referrals: { label: "Referrals", path: "/api/console/referrals", title: "Referrals" },
+type ConsoleViewConfig = {
+  label: string;
+  path: string;
+  title: string;
+  icon: LucideIcon;
+};
+
+const viewConfig: Record<ConsoleView, ConsoleViewConfig> = {
+  overview: { label: "Overview", path: "/api/console/overview", title: "Account Overview", icon: LayoutDashboard },
+  nodes: { label: "Nodes", path: "/api/console/nodes", title: "My Nodes", icon: Server },
+  wallet: { label: "Wallet", path: "/api/console/wallet", title: "Wallet", icon: Wallet },
+  audit: { label: "Audit", path: "/api/console/audit", title: "Audit", icon: ScrollText },
+  referrals: { label: "Referrals", path: "/api/console/referrals", title: "Referrals", icon: Users },
 };
 
 function formatDate(value: string | null | undefined) {
@@ -324,6 +340,7 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
 
   const activeConfig = viewConfig[view];
   const pagePath = view === "overview" ? "/console" : `/console/${view}`;
+  const ActiveIcon = activeConfig.icon;
 
   const load = async (options: { quiet?: boolean } = {}) => {
     if (!token) return;
@@ -379,35 +396,60 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
 
   if (!token) {
     return (
-      <main className="min-h-screen bg-background">
-        <div className="border-b border-border/40 bg-background/80">
-          <div className="container mx-auto flex min-h-14 items-center justify-between gap-3 px-4 py-3">
-            <div>
-              <div className="text-lg font-semibold leading-none">AnixOps Console</div>
-              <div className="mt-1 text-xs text-muted-foreground">Wallet, nodes, audit, and referrals</div>
+      <WorkspaceShell
+        header={(
+          <div className="flex min-h-14 flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-950 text-white shadow-lg">
+                <LayoutDashboard className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold leading-none">AnixOps Console</div>
+                <div className="mt-1 text-xs text-muted-foreground">Wallet, nodes, audit, and referrals</div>
+              </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => router.push("/")}>Home</Button>
+            <Button variant="outline" size="sm" onClick={() => router.push("/")}>
+              <Home className="h-4 w-4" />
+              Home
+            </Button>
           </div>
-        </div>
-
-        <div className="container mx-auto px-4 py-6 md:py-10">
-          <MagicLinkGate variant="console" returnTo={pagePath} />
-        </div>
-      </main>
+        )}
+      >
+        <MagicLinkGate variant="console" returnTo={pagePath} />
+      </WorkspaceShell>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <header className="border-b border-border/40 bg-background/80">
-        <div className="container mx-auto flex min-h-14 flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <button onClick={() => router.push("/console")} className="text-left">
-            <div className="text-lg font-semibold leading-none">AnixOps Console</div>
-            <div className="mt-1 text-xs text-muted-foreground">{email || "Account"}</div>
+    <WorkspaceShell
+      header={(
+        <div className="flex min-h-14 flex-wrap items-center justify-between gap-4">
+          <button onClick={() => router.push("/console")} className="flex items-center gap-3 text-left">
+            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-950 text-white shadow-lg">
+              <LayoutDashboard className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-lg font-semibold leading-none">AnixOps Console</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>{email || "Account"}</span>
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+                <span>{activeConfig.title}</span>
+              </div>
+            </div>
           </button>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push("/")}>Home</Button>
-            <Button variant="outline" size="sm" onClick={() => router.push("/payments")}>Payments</Button>
+            <Badge variant="outline" className="gap-1.5 rounded-full px-3 py-1">
+              <ActiveIcon className="h-3.5 w-3.5" />
+              {activeConfig.label}
+            </Badge>
+            <Button variant="outline" size="sm" onClick={() => router.push("/")}>
+              <Home className="h-4 w-4" />
+              Home
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => router.push("/payments")}>
+              <ScrollText className="h-4 w-4" />
+              Payments
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -416,44 +458,53 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
                 router.push("/");
               }}
             >
+              <LogOut className="h-4 w-4" />
               Logout
             </Button>
           </div>
         </div>
-      </header>
-
-      <div className="container mx-auto grid gap-6 px-4 py-6 lg:grid-cols-[220px_1fr]">
-        <aside className="space-y-2">
-          {navItems.map(([key, item]) => (
-            <button
-              key={key}
-              onClick={() => router.push(key === "overview" ? "/console" : `/console/${key}`)}
-              className={`w-full rounded-md border px-3 py-2 text-left text-sm transition ${
-                view === key ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-muted"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </aside>
-
-        <section className="min-w-0 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{activeConfig.title}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Account data is loaded from the self-hosted API.</p>
+      )}
+    >
+      <section className="min-w-0 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="gap-1.5 rounded-full px-3 py-1">
+                <ActiveIcon className="h-3.5 w-3.5" />
+                {activeConfig.label}
+              </Badge>
+              <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Workspace</span>
             </div>
-            <Button variant="outline" onClick={() => void load()} disabled={loading}>
-              {loading ? "Refreshing" : "Refresh"}
-            </Button>
+            <h1 className="mt-3 text-2xl font-semibold tracking-[-0.04em]">{activeConfig.title}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Account data is loaded from the self-hosted API.</p>
           </div>
+          <Button variant="outline" onClick={() => void load()} disabled={loading}>
+            <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            {loading ? "Refreshing" : "Refresh"}
+          </Button>
+        </div>
 
-          {loading && <LoadingState />}
-          {error && !loading && <ErrorState message={error} onRetry={() => void load()} />}
-          {!loading && !error && data && <ConsoleContent view={view} data={data} onReload={() => void load({ quiet: true })} />}
-        </section>
-      </div>
-    </main>
+        <Tabs
+          value={view}
+          onValueChange={(nextView) => {
+            router.push(nextView === "overview" ? "/console" : `/console/${nextView}`);
+          }}
+        >
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-[1.15rem] border border-border bg-card/90 p-1.5 shadow-sm">
+            {navItems.map(([key, item]) => (
+              <TabsTrigger key={key} value={key} className="gap-2 rounded-xl px-3.5 py-2.5">
+                <item.icon className="h-4 w-4" />
+                <span>{item.label}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {loading && <LoadingState />}
+        {error && !loading && <ErrorState message={error} onRetry={() => void load()} />}
+        {!loading && !error && data && <ConsoleContent view={view} data={data} onReload={() => void load({ quiet: true })} />}
+      </section>
+    </WorkspaceShell>
   );
 }
 
@@ -505,27 +556,39 @@ function OverviewView({ data }: { data: OverviewData }) {
         <Metric label="Provisioning" value={String(data.summary.provisioningRentals)} />
         <Metric label="Total Paid" value={formatMoney(data.summary.totalPaid)} />
       </div>
-      <NodeList title="Recent Nodes" nodes={data.recentRentals} empty="No rentals yet." />
+      <ConsoleNodesTable title="Recent Nodes" nodes={data.recentRentals} empty="No rentals yet." />
       <CheckoutGroups entries={data.recentPayments} />
-      <AuditList entries={data.recentAuditEntries} />
+      <ConsoleAuditTable title="Recent Audit" entries={data.recentAuditEntries} empty="No audit entries yet." />
     </div>
   );
 }
 
 function NodesView({ data }: { data: NodesData }) {
-  return <NodeList title="Nodes" nodes={data.nodes} empty="No nodes yet." />;
+  return <ConsoleNodesTable title="Nodes" nodes={data.nodes} empty="No nodes yet." />;
 }
 
 function WalletView({ data, onReload }: { data: WalletData; onReload?: () => Promise<void> | void }) {
+  const formalRelease = isFormalRelease();
+  const { locale } = useLocaleStore();
+  const isZh = locale === "zh";
+  const cdkRedemptions = data.ledgerEntries.filter((entry) => entry.type === "redeem_code_credit").length;
+
   return (
     <div className="space-y-4">
-      <WalletTopupPanel chainMode={data.chainMode} onReload={onReload} />
+      {formalRelease ? (
+        <WalletCdkRedeemPanel onReload={onReload} />
+      ) : (
+        <WalletTopupPanel chainMode={data.chainMode} onReload={onReload} />
+      )}
       <div className="grid gap-3 sm:grid-cols-3">
-        <Metric label="Balance" value={formatMoney(data.wallet.balance, data.wallet.currency)} />
-        <Metric label="Topups" value={String(data.topups.length)} />
-        <Metric label="Ledger Entries" value={String(data.ledgerEntries.length)} />
+        <Metric label={isZh ? "余额" : "Balance"} value={formatMoney(data.wallet.balance, data.wallet.currency)} />
+        <Metric
+          label={formalRelease ? (isZh ? "CDK 兑换" : "CDK redemptions") : (isZh ? "充值单" : "Topups")}
+          value={String(formalRelease ? cdkRedemptions : data.topups.length)}
+        />
+        <Metric label={isZh ? "账本条目" : "Ledger Entries"} value={String(data.ledgerEntries.length)} />
       </div>
-      {data.chainMode ? (
+      {!formalRelease && data.chainMode ? (
         <Card className="p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -541,7 +604,7 @@ function WalletView({ data, onReload }: { data: WalletData; onReload?: () => Pro
         </Card>
       ) : null}
       <EntryList title="Ledger" entries={data.ledgerEntries} empty="No wallet ledger entries yet." />
-      <CryptoTopupList topups={data.cryptoTopups || []} />
+      {!formalRelease && <CryptoTopupsTable topups={data.cryptoTopups || []} />}
     </div>
   );
 }
@@ -751,10 +814,11 @@ function WalletTopupPanel({
       }
       setCreatedTopup(data.topup);
       notifyWalletReload();
+      const railLabel = formatTopupRailLabel(data.topup.rail, isZh);
       setMessage(
         isZh
-          ? `已创建 ${data.topup.rail} 充值单，请在 ${formatDate(data.topup.expiresAt)} 前按 ${formatCryptoAmount(data.topup.expectedAmount)} ${data.topup.asset} / ${data.topup.network} 精确转入。`
-          : `Created a ${data.topup.rail} topup order. Send exactly ${formatCryptoAmount(data.topup.expectedAmount)} ${data.topup.asset} on ${data.topup.network} before ${formatDate(data.topup.expiresAt)}.`,
+          ? `已创建 ${railLabel} 充值单，请在 ${formatDate(data.topup.expiresAt)} 前按 ${formatCryptoAmount(data.topup.expectedAmount)} ${data.topup.asset} / ${data.topup.network} 精确转入。`
+          : `Created a ${railLabel} topup order. Send exactly ${formatCryptoAmount(data.topup.expectedAmount)} ${data.topup.asset} on ${data.topup.network} before ${formatDate(data.topup.expiresAt)}.`,
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to create topup");
@@ -763,10 +827,10 @@ function WalletTopupPanel({
     }
   };
 
-  const topupRailButtons: Array<{ rail: WalletTopupRail; labelZh: string; labelEn: string; disabled?: boolean }> = [
-    { rail: "stripe", labelZh: "Stripe", labelEn: "Stripe" },
-    { rail: "wallet", labelZh: "钱包支付", labelEn: "Wallet payment", disabled: chainRailDisabled },
-    { rail: "x402", labelZh: "X402", labelEn: "X402", disabled: chainRailDisabled },
+  const topupRailButtons: Array<{ rail: WalletTopupRail; disabled?: boolean }> = [
+    { rail: "stripe" },
+    { rail: "wallet", disabled: chainRailDisabled },
+    { rail: "x402", disabled: chainRailDisabled },
   ];
 
   return (
@@ -781,8 +845,8 @@ function WalletTopupPanel({
           </div>
           <div className="mt-1 text-sm leading-6 text-muted-foreground">
             {isZh
-              ? "Stripe、钱包支付和 X402 都会进入同一个余额账本。"
-              : "Stripe, wallet payment, and X402 all credit the same wallet ledger."}
+              ? "Stripe、钱包支付和 X402 都会给同一钱包余额入账，但系统会保留各自的 rail。"
+              : "Stripe, wallet payment, and X402 all fund the same wallet balance, but each rail stays distinct in records."}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -831,16 +895,14 @@ function WalletTopupPanel({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-semibold tracking-[-0.02em]">
-                      {isZh ? item.labelZh : item.labelEn}
+                      {formatTopupRailLabel(item.rail, isZh)}
                     </div>
                     <Badge variant={active ? "default" : "outline"} className="rounded-full px-2 py-0.5 text-[10px]">
                       {active ? (isZh ? "已选" : "selected") : (isZh ? "切换" : "switch")}
                     </Badge>
                   </div>
                   <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                    {item.rail === "stripe"
-                      ? (isZh ? "适合卡支付和法币入账。" : "Best for card checkout and fiat-backed balance.")
-                      : (isZh ? "测试链钱包通道，适合常规链上入账。" : "Test-chain wallet rail for on-chain balance credit.")}
+                    {formatTopupRailDescription(item.rail, isZh)}
                   </div>
                 </button>
               );
@@ -849,8 +911,8 @@ function WalletTopupPanel({
           {!canUseChainTopups && (
             <div className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-900">
               {isZh
-                ? "当前测试服只对白名单邮箱开放链上充值，钱包支付和 X402 会被限制。"
-                : "Chain topups are limited to allowlisted emails on this test build. Wallet and X402 remain locked."}
+                ? "当前测试服只对白名单邮箱开放链上充值，钱包支付和 X402 通道都会被限制。"
+                : "Chain topups are limited to allowlisted emails on this test build. Wallet and X402 rails remain locked."}
             </div>
           )}
         </div>
@@ -897,7 +959,7 @@ function WalletTopupPanel({
                 {getCryptoTopupStatusLabel(createdTopup.status, isZh)}
               </Badge>
               <Badge variant="outline" className="rounded-full px-3">
-                {createdTopup.rail}
+                {formatTopupRailLabel(createdTopup.rail, isZh)}
               </Badge>
               <Button variant="outline" size="sm" onClick={() => void refreshCreatedTopup()} disabled={refreshingTopup}>
                 {refreshingTopup ? (isZh ? "刷新中..." : "Refreshing...") : (isZh ? "刷新状态" : "Refresh status")}
@@ -1121,7 +1183,7 @@ function AuditView({ data }: { data: AuditData }) {
           </div>
         </Card>
       )}
-      <AuditList entries={data.auditEntries} />
+      <ConsoleAuditTable title="Recent Audit" entries={data.auditEntries} empty="No audit entries yet." />
       {structuredEvents.length > 0 && (
         <Card className="overflow-hidden">
           <div className="flex items-center justify-between gap-3 border-b p-4">
@@ -1219,47 +1281,198 @@ function ReferralsView({ data }: { data: ReferralsData }) {
   );
 }
 
-function CryptoTopupList({ topups }: { topups: CryptoTopup[] }) {
+function WalletCdkRedeemPanel({ onReload }: { onReload?: () => Promise<void> | void }) {
+  const token = useAuthStore((s) => s.token);
   const { locale } = useLocaleStore();
   const isZh = locale === "zh";
+  const [code, setCode] = useState("");
+  const [validating, setValidating] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [validatedType, setValidatedType] = useState<"wallet" | "duration" | null>(null);
+  const [walletAmount, setWalletAmount] = useState<number | null>(null);
+  const [durationHours, setDurationHours] = useState<number | null>(null);
+
+  useEffect(() => {
+    setMessage(null);
+    setValidatedType(null);
+    setWalletAmount(null);
+    setDurationHours(null);
+  }, [code]);
+
+  const notifyWalletReload = () => {
+    void onReload?.();
+  };
+
+  const validateCode = async () => {
+    if (!token) {
+      setMessage(isZh ? "登录后才能兑换 CDK。" : "You need to sign in before redeeming a CDK.");
+      return;
+    }
+    if (!code || code.trim().length < 6) {
+      setMessage(isZh ? "请输入有效的 CDK。" : "Enter a valid CDK.");
+      return;
+    }
+
+    setValidating(true);
+    setMessage(null);
+
+    try {
+      const res = await workerFetch("/api/redeem/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.valid) {
+        throw new Error(data.error || (isZh ? "CDK 无效或已过期。" : "The CDK is invalid or expired."));
+      }
+
+      if (data.codeType === "wallet") {
+        setValidatedType("wallet");
+        setWalletAmount(typeof data.walletAmount === "number" ? data.walletAmount : null);
+        setDurationHours(null);
+        setMessage(
+          isZh
+            ? `已识别为 ${formatRedeemCodeTypeLabel("wallet", true)}，可以直接兑换到钱包。`
+            : `Recognized as a ${formatRedeemCodeTypeLabel("wallet", false)} and ready to credit the wallet.`,
+        );
+      } else {
+        setValidatedType("duration");
+        setWalletAmount(null);
+        setDurationHours(typeof data.durationHours === "number" ? data.durationHours : null);
+        setMessage(
+          isZh
+            ? `这是 ${formatRedeemCodeTypeLabel("duration", true)}，请到租用页使用。`
+            : `This is a ${formatRedeemCodeTypeLabel("duration", false)}. Redeem it in the rental flow.`,
+        );
+      }
+    } catch (error) {
+      setValidatedType(null);
+      setWalletAmount(null);
+      setDurationHours(null);
+      setMessage(error instanceof Error ? error.message : (isZh ? "CDK 校验失败。" : "Failed to validate the CDK."));
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const redeemCode = async () => {
+    if (!token) {
+      setMessage(isZh ? "登录后才能兑换 CDK。" : "You need to sign in before redeeming a CDK.");
+      return;
+    }
+    if (validatedType !== "wallet") {
+      if (validatedType === "duration") {
+        setMessage(
+          isZh
+            ? `这是 ${formatRedeemCodeTypeLabel("duration", true)}，请在租用页兑换。`
+            : `This is a ${formatRedeemCodeTypeLabel("duration", false)}. Redeem it in the rental flow.`,
+        );
+      } else {
+        setMessage(isZh ? "请先验证余额型 CDK。" : "Validate the balance CDK first.");
+      }
+      return;
+    }
+
+    setRedeeming(true);
+    setMessage(null);
+
+    try {
+      const res = await workerFetch("/api/wallet/redeem", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || (isZh ? "余额兑换失败。" : "Failed to credit the wallet."));
+      }
+
+      notifyWalletReload();
+      setCode("");
+      setValidatedType(null);
+      setWalletAmount(null);
+      setDurationHours(null);
+      setMessage(
+        isZh
+          ? `钱包余额已增加 ${formatMoney(Number(data.balanceDelta || 0), data.currency || "usd")}。`
+          : `Wallet balance increased by ${formatMoney(Number(data.balanceDelta || 0), data.currency || "usd")}.`,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : (isZh ? "余额兑换失败。" : "Failed to credit the wallet."));
+    } finally {
+      setRedeeming(false);
+    }
+  };
 
   return (
-    <Card className="overflow-hidden">
-      <div className="border-b p-4">
-        <div className="font-medium">Crypto Topups</div>
+    <Card className="space-y-4 border-black/5 bg-white/90 p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+            {isZh ? "CDK 余额直充型" : "CDK wallet credit"}
+          </div>
+          <div className="mt-1 text-lg font-semibold tracking-[-0.03em]">
+            {isZh ? "输入余额型 CDK 直接入账到钱包" : "Redeem a balance CDK directly into the wallet"}
+          </div>
+          <div className="mt-1 text-sm leading-6 text-muted-foreground">
+            {isZh
+              ? "单次型 CDK 请在租用页兑换，那里会直接创建一次租用。"
+              : "Single-use CDKs belong in the rental flow, where they create a prepaid rental directly."}
+          </div>
+        </div>
+        <Badge variant="default" className="rounded-full px-3">
+          {isZh ? "余额入账" : "Wallet credit"}
+        </Badge>
       </div>
-      {topups.length === 0 ? (
-        <div className="p-4 text-sm text-muted-foreground">No crypto topups yet.</div>
-      ) : (
-        <div className="divide-y">
-          {topups.map((topup) => (
-            <div key={topup.id} className="grid gap-3 p-4 md:grid-cols-[1fr_auto]">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="font-medium">{topup.asset} · {topup.network}</div>
-                  <Badge variant="outline" className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
-                    {topup.rail}
-                  </Badge>
-                  <Badge variant={statusVariant(topup.status)} className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
-                    {getCryptoTopupStatusLabel(topup.status, isZh)}
-                  </Badge>
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {shortId(topup.address)} · {formatDate(topup.createdAt)}
-                </div>
-                <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {formatCryptoAmount(topup.expectedAmount)} {topup.asset}
-                  {topup.receivedAmount != null ? ` · ${formatCryptoAmount(topup.receivedAmount)} ${topup.asset} ${isZh ? "已到账" : "received"}` : ""}
-                  {topup.confirmations ? ` · ${topup.confirmations} ${isZh ? "确认" : "conf"}` : ""}
-                  {topup.completedAt ? ` · ${isZh ? "完成于" : "completed"} ${formatDate(topup.completedAt)}` : ""}
-                </div>
-              </div>
-              <div className="text-left md:text-right">
-                <div className="font-medium">{formatMoney(topup.fiatAmount, topup.currency)}</div>
-                <Badge variant={statusVariant(topup.status)}>{getCryptoTopupStatusLabel(topup.status, isZh)}</Badge>
-              </div>
-            </div>
-          ))}
+
+      <div className="rounded-[1.2rem] border border-slate-200/70 bg-slate-50/85 px-4 py-3 text-sm leading-6 text-muted-foreground">
+        {isZh
+          ? "先验证 CDK 类型，再兑换到钱包。余额型和单次型会显示不同的提示，避免走错入口。"
+          : "Validate the code type first, then credit the wallet. Balance and single-use CDKs surface different hints so you do not enter the wrong flow."}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <Input
+          type="text"
+          value={code}
+          onChange={(event) => setCode(event.target.value.toUpperCase())}
+          placeholder={isZh ? "输入余额型 CDK" : "Enter balance CDK"}
+          className="h-12 rounded-[1.1rem] uppercase"
+        />
+        <Button variant="outline" onClick={validateCode} disabled={validating || code.trim().length < 6} className="h-12 px-5">
+          {validating ? (isZh ? "验证中..." : "Validating...") : (isZh ? "验证" : "Validate")}
+        </Button>
+        <Button onClick={redeemCode} disabled={redeeming || validatedType !== "wallet" || code.trim().length < 6} className="h-12 px-5">
+          {redeeming ? (isZh ? "兑换中..." : "Redeeming...") : (isZh ? "兑换余额" : "Redeem balance")}
+        </Button>
+      </div>
+
+      {(validatedType || walletAmount !== null || durationHours !== null) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={validatedType === "wallet" ? "default" : "secondary"} className="rounded-full px-3">
+            {validatedType ? formatRedeemCodeTypeLabel(validatedType, isZh) : (isZh ? "未校验" : "Unvalidated")}
+          </Badge>
+          {walletAmount !== null && (
+            <Badge variant="outline" className="rounded-full px-3">
+              {isZh ? `余额 $${walletAmount.toFixed(2)}` : `Wallet amount $${walletAmount.toFixed(2)}`}
+            </Badge>
+          )}
+          {durationHours !== null && (
+            <Badge variant="outline" className="rounded-full px-3">
+              {isZh ? `${durationHours} 小时` : `${durationHours}h`}
+            </Badge>
+          )}
+        </div>
+      )}
+
+      {message && (
+        <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-muted-foreground">
+          {message}
         </div>
       )}
     </Card>
@@ -1276,97 +1489,61 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-function NodeList({ title, nodes, empty }: { title: string; nodes: ConsoleNode[]; empty: string }) {
-  return (
-    <Card className="overflow-hidden">
-      <div className="border-b p-4">
-        <div className="font-medium">{title}</div>
-      </div>
-      {nodes.length === 0 ? (
-        <div className="p-4 text-sm text-muted-foreground">{empty}</div>
-      ) : (
-        <div className="divide-y">
-          {nodes.map((node) => (
-            <div key={node.id} className="grid gap-3 p-4 md:grid-cols-[1fr_auto]">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{node.protocol}</span>
-                  <Badge variant={statusVariant(node.status)}>{node.status}</Badge>
-                  {node.probeSummary && <Badge variant="outline">Probe: {node.probeSummary.status}</Badge>}
-                </div>
-                <div className="mt-2 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
-                  <span>ID: {shortId(node.id)}</span>
-                  <span>IP: {node.ip || "pending"}</span>
-                  <span>Expires: {formatDate(node.expiresAt)}</span>
-                  <span>Remaining: {node.remainingMinutes} min</span>
-                </div>
-              </div>
-              <div className="text-left md:text-right">
-                <div className="font-medium">{formatMoney(node.totalPrice)}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{node.paymentMethod || "unknown"}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function EntryList({ title, entries, empty }: { title: string; entries: WalletEntry[]; empty: string }) {
   return (
     <Card className="overflow-hidden">
       <div className="border-b p-4">
         <div className="font-medium">{title}</div>
       </div>
-      {entries.length === 0 ? (
-        <div className="p-4 text-sm text-muted-foreground">{empty}</div>
-      ) : (
-        <div className="divide-y">
-          {entries.map((entry) => (
-            <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-              <div>
-                <div className="font-medium">{entry.type || entry.method || "payment"}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {shortId(entry.rentalId)} - {formatDate(entry.createdAt)}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-medium">{formatMoney(entry.amount, entry.currency)}</div>
-                <Badge variant={statusVariant(entry.status)}>{entry.status}</Badge>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="p-4">
+        <WalletEntriesTable rows={entries} empty={empty} />
+      </div>
     </Card>
   );
 }
 
 function CheckoutGroups({ entries }: { entries: WalletEntry[] }) {
+  const formalRelease = isFormalRelease();
+  const { locale } = useLocaleStore();
+  const isZh = locale === "zh";
   const groups = useMemo(() => groupPaymentsByMethod(entries), [entries]);
   const sections = [
     {
       key: "wallet" as const,
-      title: "Wallet Checkouts",
-      description: "Rentals paid from wallet balance.",
-      empty: "No wallet checkout records yet.",
+      title: isZh ? "钱包支付" : "Wallet checkouts",
+      description: isZh ? "从钱包余额直接扣费的租用记录。" : "Rentals paid from wallet balance.",
+      empty: isZh ? "这里还没有钱包支付记录。" : "No wallet checkout records yet.",
       entries: groups.wallet,
     },
     {
       key: "redeem_code" as const,
-      title: "Redeem-code Rentals",
-      description: "Rentals unlocked by redeem codes.",
-      empty: "No redeem-code rentals yet.",
+      title: formatRedeemCodeTypeLabel("duration", isZh),
+      description: formalRelease
+        ? (isZh ? "使用 CDK 单次型创建的租用记录。" : "Rentals unlocked by CDK single-use codes.")
+        : (isZh ? "通过兑换码创建的租用记录。" : "Rentals unlocked by redeem codes."),
+      empty: formalRelease
+        ? (isZh ? "这里还没有 CDK 单次型租用记录。" : "No CDK single-use rentals yet.")
+        : (isZh ? "这里还没有兑换码租用记录。" : "No redeem-code rentals yet."),
       entries: groups.redeem_code,
     },
-    {
-      key: "legacy" as const,
-      title: "Legacy Direct Payments",
-      description: "Stripe, X402, and older direct payments.",
-      empty: "No legacy direct payments yet.",
-      entries: groups.legacy,
-    },
+    ...(!formalRelease
+      ? [
+          {
+            key: "x402" as const,
+            title: isZh ? "X402 通道" : "X402 rails",
+            description: isZh ? "历史 X402 直付记录。" : "Historical direct payments routed through X402.",
+            empty: isZh ? "这里还没有 X402 记录。" : "No X402 records yet.",
+            entries: groups.x402,
+          },
+          {
+            key: "legacy" as const,
+            title: isZh ? "历史直付" : "Legacy direct payments",
+            description: isZh ? "Stripe 和更早的直接支付记录。" : "Stripe and older direct payments.",
+            empty: isZh ? "这里还没有历史直付记录。" : "No legacy direct payments yet.",
+            entries: groups.legacy,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -1375,69 +1552,29 @@ function CheckoutGroups({ entries }: { entries: WalletEntry[] }) {
         <div>
           <div className="font-medium">Recent Checkout Records</div>
           <div className="mt-1 text-sm text-muted-foreground">
-            Wallet checkouts, redeem-code rentals, and legacy direct payments are separated by method.
+            {formalRelease
+              ? "Wallet checkouts and CDK single-use rentals are separated by source."
+              : "Wallet checkouts, X402 rails, redeem-code rentals, and legacy direct payments are separated by source."}
           </div>
         </div>
         <Badge variant="outline">{entries.length}</Badge>
       </div>
-      <div className="grid gap-3 p-4 xl:grid-cols-3">
-        {sections.map((section) => (
-          <Card key={section.key} className="overflow-hidden border-black/5 bg-white/95">
-            <div className="flex items-center justify-between gap-3 border-b p-3">
-              <div>
-                <div className="font-medium">{section.title}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{section.description}</div>
-              </div>
-              <Badge variant="outline">{section.entries.length}</Badge>
-            </div>
-            {section.entries.length === 0 ? (
-              <div className="p-3 text-sm text-muted-foreground">{section.empty}</div>
-            ) : (
-              <div className="divide-y">
-                {section.entries.map((entry) => (
-                  <div key={entry.id} className="space-y-2 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium">{formatMoney(entry.amount, entry.currency)}</div>
-                      <Badge variant={statusVariant(entry.status)}>{entry.status}</Badge>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatPaymentMethodLabel(entry.method)} · {shortId(entry.rentalId)} · {formatDate(entry.createdAt)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-function AuditList({ entries }: { entries: AuditEntry[] }) {
-  return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b p-4">
-        <div className="font-medium">Recent Audit</div>
-        <Badge variant="outline">{entries.length}</Badge>
-      </div>
-      {entries.length === 0 ? (
-        <div className="p-4 text-sm text-muted-foreground">No audit entries yet.</div>
-      ) : (
-        <div className="divide-y">
-          {entries.map((entry) => (
-            <div key={entry.id} className="p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{entry.action}</span>
-                <span className="text-xs text-muted-foreground">{formatDate(entry.createdAt)}</span>
-              </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                {shortId(entry.rentalId)} {entry.detail ? `- ${entry.detail}` : ""}
+      <div className="space-y-4 p-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {sections.map((section) => (
+            <div key={section.key} className="rounded-2xl border border-black/5 bg-white/95 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium">{section.title}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{section.description}</div>
+                </div>
+                <Badge variant="outline">{section.entries.length}</Badge>
               </div>
             </div>
           ))}
         </div>
-      )}
+        <WalletEntriesTable rows={entries} empty="No checkout records yet." />
+      </div>
     </Card>
   );
 }

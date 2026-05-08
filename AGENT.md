@@ -9,21 +9,21 @@
 - 下一步优先做什么。
 - 做完后如何自查、测试、提交和部署。
 
-当前仓库已经把基础能力铺开，后续工作主要集中在未完成项的收口、测试链联调、生产决策和少量产品化补齐。
+当前仓库已经把基础能力铺开，后续工作主要集中在未完成项的收口、测试链联调、正式版发布和少量产品化补齐。
 
 ## 当前目标
 
-短期目标：把测试服跑成一条可验收闭环。
+短期目标：把测试服保持为可验收闭环，同时把正式版 V1 收口成可发布快照。
 
 闭环定义：
 
 1. 内部白名单用户可以在测试服登录。
-2. 用户可以通过余额充值获得站内余额。
-3. 余额充值入口支持 `Stripe`、钱包支付和 `X402` 三种方式。
-4. 租用节点时只看到 `余额支付` 和 `兑换码` 两种付款模式。
-5. 余额支付可以创建 rental、扣账、进入 provision 流程。
-6. 兑换码可以创建 rental、进入 provision 流程。
-7. 测试服页面明确显示测试版标注。
+2. 测试服仍可通过余额充值获得站内余额，并保持历史 rail 可回归。
+3. 租用节点时只看到 `余额支付` 和 `兑换码` 两种付款模式。
+4. 余额支付可以创建 rental、扣账、进入 provision 流程。
+5. 兑换码可以创建 rental、进入 provision 流程。
+6. 测试服页面明确显示测试版标注。
+7. 正式版 V1 通过 `NEXT_PUBLIC_RELEASE_PROFILE=formal` 收口到 `CDK`，只保留 `wallet` 余额直充型和 `duration` 单次型。
 8. 管理端和支付记录能区分充值、余额扣费、兑换码、历史直接支付记录。
 
 中期目标：把测试链能力迁移成可生产化方案。
@@ -43,6 +43,8 @@
 - [docs/implementation-gap-checklist.md](docs/implementation-gap-checklist.md)
 - [docs/manual-input-checklist.md](docs/manual-input-checklist.md)
 - [docs/payment-balance-model.md](docs/payment-balance-model.md)
+- [docs/production-release-plan.md](docs/production-release-plan.md)
+- [docs/frontend-redesign-plan.md](docs/frontend-redesign-plan.md)
 - [docs/long-term-api-plan.md](docs/long-term-api-plan.md)
 - [docs/user-console-compliance-roadmap.md](docs/user-console-compliance-roadmap.md)
 - [docs/evm-testnet-playbook.md](docs/evm-testnet-playbook.md)
@@ -57,7 +59,9 @@
 | 充值和锚定链 | 测试环境优先保持一致 |
 | 充值私钥与锚定私钥 | 必须分离，不能复用 |
 | 租用支付模型 | 只保留 `余额支付` 和 `兑换码` |
-| 余额充值入口 | `Stripe`、`钱包支付`、`X402` |
+| 测试服余额充值入口 | `Stripe`、`钱包支付`、`X402` |
+| 正式版充值入口 | `CDK wallet`、`CDK duration` |
+| 正式版模式开关 | `NEXT_PUBLIC_RELEASE_PROFILE=formal` |
 | 生产云厂商默认 | `Vultr` |
 | 可切换云厂商 | `DigitalOcean`、`AWS` |
 | 自托管调度 | `scheduler` 容器承接 |
@@ -67,12 +71,16 @@
 | 决策 | 当前结论 |
 |---|---|
 | 租用支付 | 租用页只保留 `余额支付` 和 `兑换码` |
-| 余额充值 | `Stripe`、钱包支付、`X402` 都属于余额充值入口 |
+| 余额充值 | `Stripe`、钱包支付、`X402` 都属于余额充值入口，但钱包支付和 `X402` 必须保留独立 rail 语义 |
 | 测试服链路 | 默认使用 `Base Sepolia + mock USDT` |
 | 测试服开放范围 | 链上相关能力只对白名单邮箱开放 |
 | 测试服标注 | 所有非正式版本站点顶部必须显示测试版提示 |
+| 前端大改组件库 | 主线定为 `shadcn/ui + Radix UI + TanStack Table + lucide-react + sonner`，细节见 `docs/frontend-redesign-plan.md` |
 | 云厂商 | 保留 `Vultr`、`DigitalOcean`、`AWS` 三家，当前默认 `Vultr` |
 | 私钥用途 | 充值钱包私钥和审计锚定私钥必须分离 |
+| 支付详情页 | 支付记录里的 `rental_id` 会跳到 `/payments/[rentalId]`，页面展示节点状态和订阅链接 |
+| 正式版首发充值 | 只保留 `CDK` 兑换码通道，`Stripe` 未申请前不作为生产可见入口；`CDK` 分 `wallet` 余额直充型和 `duration` 单次型 |
+| 正式版发布方式 | 用 tag 发布正式版快照，不单独长期维护 `production` 分支 |
 | Worker API | `web/workers/index.ts` 仍存在，改动核心 API 时要决定是否同步或废弃 |
 
 ## 当前仍待推进
@@ -90,10 +98,10 @@
 
 ## 当前推荐实施顺序
 
-1. 跑测试服充值闭环：先用 `node scripts/recharge-smoke.js` 验证充值、入账和余额租用，再补兑换码租用、支付记录展示。
-2. 再处理审计 anchor 测试链闭环和生产主网决策，优先跑 `node scripts/audit-anchor-smoke.js --confirmation-mode synthetic`。
-3. 补齐支付和充值后台展示，让充值、余额扣费、兑换码和历史直接支付不混淆。
-4. 推进真实链上充值生产化，明确生产链、资产、provider、确认监听、汇率源和对账。
+1. 先把正式版 V1 的 tag 发布和远端部署跑通，默认用 `NEXT_PUBLIC_RELEASE_PROFILE=formal` 验证 CDK 两种兑换码、节点详情页和支付记录跳转。
+2. 跑测试服充值闭环：先用 `node scripts/recharge-smoke.js` 验证充值、入账和余额租用，再补兑换码租用、支付记录展示。
+3. 再处理审计 anchor 测试链闭环和生产主网决策，优先跑 `node scripts/audit-anchor-smoke.js --confirmation-mode synthetic`。
+4. 补齐支付和充值后台展示，让充值、余额扣费、兑换码和历史直接支付不混淆。
 5. 最后再决定 Worker API 去留，避免重复维护两套核心入口。
 
 ## 敏感信息与安全边界
@@ -149,6 +157,8 @@
 node scripts/selfhosted-deploy.js --replace-live
 ```
 
+- 正式版发布时，`NEXT_PUBLIC_RELEASE_PROFILE=formal` 必须同时出现在 `web` 的 build arg 和运行时环境里，否则前端仍会按测试版渲染。
+
 - 远端状态和健康检查优先使用：
 
 ```bash
@@ -197,6 +207,15 @@ npm run crypto:bootstrap-testnet -- --chain base-sepolia --whitelist-emails qa@e
 如果任务和支付、余额、充值或兑换码有关，先看：
 
 - [docs/payment-balance-model.md](docs/payment-balance-model.md)
+
+如果任务和前端大改、UI 组件库、控制台布局、管理后台布局或视觉系统有关，先看：
+
+- [docs/frontend-redesign-plan.md](docs/frontend-redesign-plan.md)
+
+如果任务和正式版发布、充值渠道配置、CDK 兑换码双版本有关，先看：
+
+- [docs/production-release-plan.md](docs/production-release-plan.md)
+- [docs/REDEEM_CODES.md](docs/REDEEM_CODES.md)
 
 如果任务和产品边界、未完成项或路线图有关，先看：
 

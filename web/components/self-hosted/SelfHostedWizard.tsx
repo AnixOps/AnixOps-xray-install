@@ -5,6 +5,7 @@ import { useDeployStore } from "@/lib/deploy/store";
 import { useAuthStore } from "@/lib/auth/store";
 import { PROVIDER_INFO, PROTOCOL_INFO } from "@/lib/deploy/types";
 import { useLocaleStore } from "@/lib/i18n/store";
+import { WizardAside, WizardFrame, WizardSummaryRow as SummaryRow } from "@/components/layout/WizardLayout";
 import { Button, Input, Label, Card, Badge } from "@/components/ui";
 import {
   encodeBase64Text,
@@ -944,83 +945,6 @@ export function SelfHostedWizard() {
   }
 
   return null;
-}
-
-function WizardFrame({
-  eyebrow,
-  title,
-  description,
-  stepLabel,
-  children,
-  aside,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  stepLabel: string;
-  children: React.ReactNode;
-  aside: React.ReactNode;
-}) {
-  return (
-    <div className="animate-rise grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <Card className="space-y-7 p-6 md:p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="section-eyebrow">{eyebrow}</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">{title}</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">{description}</p>
-          </div>
-          <div className="metric-pill self-start">{stepLabel}</div>
-        </div>
-        {children}
-      </Card>
-      <div className="space-y-4">{aside}</div>
-    </div>
-  );
-}
-
-function WizardAside({
-  title,
-  rows,
-  footer,
-}: {
-  title: string;
-  rows: Array<{ label: string; value: string }>;
-  footer?: React.ReactNode;
-}) {
-  return (
-    <Card className="space-y-5 p-5">
-      <div>
-        <div className="section-eyebrow">Snapshot</div>
-        <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{title}</h3>
-      </div>
-      <div className="space-y-3">
-        {rows.map((row) => (
-          <SummaryRow key={row.label} label={row.label} value={row.value} />
-        ))}
-      </div>
-      {footer}
-    </Card>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-[1.2rem] border border-black/5 bg-white/70 px-4 py-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={`max-w-[60%] text-right text-sm ${mono ? "break-all font-mono" : "font-medium text-foreground"}`}>
-        {value}
-      </span>
-    </div>
-  );
 }
 
 function StatusStep({

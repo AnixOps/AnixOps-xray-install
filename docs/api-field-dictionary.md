@@ -102,7 +102,7 @@ It is not a generated OpenAPI spec. It is the human-maintained contract summary 
   - `fiatAmount`: requested fiat credit amount. `amount` is still accepted for backward compatibility.
   - `asset`: currently `USDT` or `USDC`.
   - `network`: currently `TRC20`, `ERC20`, or `POLYGON`.
-  - `rail`: persisted routing label for separating ordinary wallet crypto topups from X402-labeled topups. Current values are `wallet` and `x402`.
+  - `rail`: persisted routing label for separating ordinary wallet crypto topups from X402-labeled topups. Current values are `wallet` and `x402`, and the UI must keep those rails distinct even though both fund the same wallet balance.
 - Response `topup`:
   - `address`: self-hosted deposit reference string or configured EVM receiver address.
   - `expectedAmount`: exact crypto amount the user must send.
@@ -121,12 +121,14 @@ The console wallet UI now shows the exact expected amount, the deposit address, 
 
 When `CHAIN_ENVIRONMENT=testnet` and EVM topup config is enabled, the server pins `asset` and `network` to the configured test chain instead of trusting arbitrary client input.
 
+Payment history rows with a non-null `rental_id` now link to `/payments/[rentalId]`, which renders the node snapshot and subscription string for that rental.
+
 ## Rental Payment Model
 
 Target product model:
 
 - New rentals should expose only `wallet` balance payment and `redeem_code`.
-- `Stripe`, ordinary crypto wallet payment, and `X402` belong under wallet topup flows, not direct rental checkout.
+- `Stripe`, ordinary crypto wallet payment, and `X402` belong under wallet topup flows, not direct rental checkout. Wallet payment and `X402` are separate rails.
 - Historical `payments.method=stripe` and `payments.method=x402` must remain readable for old records.
 
 See [payment-balance-model.md](/root/code/AnixOps-xray-install/docs/payment-balance-model.md) for the implementation plan.

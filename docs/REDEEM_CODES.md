@@ -11,6 +11,11 @@ Redeem codes now support two modes:
 
 Both modes keep one-time claim semantics with a `used_by IS NULL` guard.
 
+In the formal release UI, these appear as:
+
+- `wallet`: `CDK 余额直充型`
+- `duration`: `CDK 单次型`
+
 ## Features
 
 - **Rental tokens**: Generate codes like `ANIX-ABCD-EFGH` that grant specific rental durations.

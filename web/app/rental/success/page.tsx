@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useDeployStore } from "@/lib/deploy/store";
 import { useLocaleStore } from "@/lib/i18n/store";
-import { Button, Card, Badge } from "@/components/ui";
+import { Button, Badge } from "@/components/ui";
+import { CenteredStatus } from "@/components/layout/CenteredStatus";
 import { workerFetch } from "@/lib/api/client";
 
 export default function RentalSuccessPage() {
@@ -55,7 +56,7 @@ export default function RentalSuccessPage() {
 
   if (loading) {
     return (
-      <CenterStatus
+      <CenteredStatus
         eyebrow="Payments"
         title={isZh ? "支付已确认，正在同步节点状态。" : "Payment confirmed. Syncing rental state now."}
         body={t("rental.loadingConfig")}
@@ -67,7 +68,7 @@ export default function RentalSuccessPage() {
 
   if (isRenewal) {
     return (
-      <CenterStatus
+      <CenteredStatus
         eyebrow="Renewal complete"
         title={t("rental.renew.success")}
         body={t("rental.paymentConfirmed")}
@@ -83,7 +84,7 @@ export default function RentalSuccessPage() {
   }
 
   return (
-    <CenterStatus
+    <CenteredStatus
       eyebrow="Payment complete"
       title={t("rental.paymentConfirmed")}
       body={resolvedRentalId ? `${t("rental.creatingNode")} #${resolvedRentalId.slice(0, 8)}` : t("rental.creatingNode")}
@@ -97,43 +98,5 @@ export default function RentalSuccessPage() {
         </div>
       )}
     />
-  );
-}
-
-function CenterStatus({
-  eyebrow,
-  title,
-  body,
-  tone,
-  action,
-  meta,
-  pulse = false,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  tone: "neutral" | "success";
-  action?: React.ReactNode;
-  meta?: React.ReactNode;
-  pulse?: boolean;
-}) {
-  const accent =
-    tone === "success"
-      ? "bg-green-100 text-green-700"
-      : "bg-primary/10 text-primary";
-
-  return (
-    <div className="apple-shell flex min-h-[70vh] items-center justify-center px-4">
-      <Card className="animate-rise max-w-2xl space-y-5 p-8 text-center">
-        <div className={`mx-auto grid h-16 w-16 place-items-center rounded-full text-xl font-semibold ${accent} ${pulse ? "animate-pulse" : ""}`}>
-          AX
-        </div>
-        <div className="section-eyebrow">{eyebrow}</div>
-        <h2 className="text-3xl font-semibold tracking-[-0.045em]">{title}</h2>
-        <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">{body}</p>
-        {meta ? <div className="flex justify-center">{meta}</div> : null}
-        {action}
-      </Card>
-    </div>
   );
 }

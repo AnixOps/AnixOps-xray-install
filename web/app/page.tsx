@@ -550,6 +550,16 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                 {t("payment.history")}
               </button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/console/wallet")}
+              className="rounded-full border-black/10 bg-white/90 px-4 shadow-sm"
+            >
+              {token
+                ? (locale === "zh" ? "钱包控制台" : "Wallet console")
+                : (locale === "zh" ? "登录控制台" : "Console login")}
+            </Button>
             {token && isAdmin && (
               <button
                 onClick={() => router.push("/admin")}

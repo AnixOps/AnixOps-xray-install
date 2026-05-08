@@ -1,6 +1,6 @@
 # AnixOps 支付与余额模型规划
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 ## 目标决策
 
@@ -12,9 +12,16 @@ Last updated: 2026-05-08
 | 租用节点 | 兑换码 | 验证兑换码后部署 | `rentals.payment_method=redeem_code` |
 | 余额充值 | Stripe | 用 Stripe 给站内余额充值 | `topups.provider=stripe` |
 | 余额充值 | 钱包支付 | 用测试链/正式链加密货币充值余额 | `crypto_topups.rail=wallet` |
-| 余额充值 | X402 | 用 X402 标记的支付通道充值余额 | `crypto_topups.rail=x402` |
+| 余额充值 | X402 | 独立的 X402 支付通道充值余额 | `crypto_topups.rail=x402` |
 
-短期内，测试服的 `钱包支付` 和 `X402` 可以复用同一套 Base Sepolia mock USDT 充值确认链路，但必须在记录层保留 rail/source 标记，避免以后无法对账。
+注：上面的表描述的是长期支付模型。正式版首发会先收口到 `CDK` 兑换码通道，不把 `Stripe`、链上钱包支付或 `X402` 作为对外可见入口。首发只保留两种 `CDK` 版本：
+
+- `wallet`：余额直充型
+- `duration`：单次型
+
+正式版规划见 [docs/production-release-plan.md](/root/code/AnixOps-xray-install/docs/production-release-plan.md)。
+
+短期内，测试服的 `钱包支付` 和 `X402` 可以复用同一套 Base Sepolia mock USDT 充值确认链路，但它们必须保持不同的 rail/source 标记，不能在 UI、记录或文档里写成同一种支付方式。
 
 ## 变更背景
 
@@ -54,7 +61,7 @@ Last updated: 2026-05-08
 |---|---|---|
 | Stripe | Stripe checkout 后写入钱包账本 | 保持 |
 | 钱包支付 | Base Sepolia mock USDT 充值，白名单可用 | 正式链 USDT/USDC 或稳定币 |
-| X402 | 先复用测试链充值确认，记录 `rail=x402` | 接入真实 X402 支付/结算能力 |
+| X402 | 先复用测试链充值确认，记录 `rail=x402`，并与 wallet rail 分开显示 | 接入真实 X402 支付/结算能力 |
 
 当前前端实现里，首页保留 `Console Wallet` 登录入口，普通用户可通过邮箱魔法链接进入 `/console/wallet`。链上充值单会明确展示精确到账金额、网络、过期时间、状态和复制按钮，并在待确认时自动轮询。
 

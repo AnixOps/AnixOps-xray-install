@@ -5,27 +5,33 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import versions from "@/../versions.json";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { useAuthStore } from "@/lib/auth/store";
 import { workerFetch } from "@/lib/api/client";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { generateHysteria2Config, generateVlessRealityConfig } from "@/lib/config/generator";
+import { RedeemCodesTable, type RedeemCodeRow } from "@/components/admin/RedeemCodesTable";
+import { RecentPaymentsTable } from "@/components/admin/RecentPaymentsTable";
+import { RecentAnchorBatchesTable } from "@/components/admin/RecentAnchorBatchesTable";
+import { RecentCryptoTopupsTable } from "@/components/admin/RecentCryptoTopupsTable";
+import { RecentFiatTopupsTable } from "@/components/admin/RecentFiatTopupsTable";
+import { RecentFailedJobsTable } from "@/components/admin/RecentFailedJobsTable";
+import { ProvisioningRentalsTable } from "@/components/admin/ProvisioningRentalsTable";
+import { RecentRentalsTable } from "@/components/admin/RecentRentalsTable";
+import { RecentQueueJobsTable } from "@/components/admin/RecentQueueJobsTable";
+import { SearchRentalsTable } from "@/components/admin/SearchRentalsTable";
+import { SearchUsersTable } from "@/components/admin/SearchUsersTable";
+import { RecentStageLogsTable } from "@/components/admin/RecentStageLogsTable";
+import { RecentWalletLedgerTable } from "@/components/admin/RecentWalletLedgerTable";
+import { ChainModeReadinessTable } from "@/components/admin/ChainModeReadinessTable";
+import { CodeTemplatesTable } from "@/components/admin/CodeTemplatesTable";
+import { ComplianceStatsTable } from "@/components/admin/ComplianceStatsTable";
+import { ComplianceTrackingTables } from "@/components/admin/ComplianceTrackingTables";
+import { SystemHealthChecksTable } from "@/components/admin/SystemHealthChecksTable";
+import { classifyAdminPaymentBucket, type PaymentBucket } from "@/components/admin/payment-utils";
+import { ConsoleAuditTable } from "@/components/console/ConsoleAuditTable";
 import { Button, Card, Input, Label, Badge, Textarea, useToast } from "@/components/ui";
-
-interface RedeemCodeRow {
-  redeem_codes: {
-    id: string;
-    code: string;
-    durationHours: number;
-    usedBy: string | null;
-    usedAt: string | null;
-    expiresAt: string | null;
-    createdAt: string;
-  };
-  users: {
-    id: string;
-    email: string | null;
-  } | null;
-}
+import { formatRedeemCodeTypeLabel } from "@/lib/payment-records";
 
 interface ProvisionDebugJob {
   id: string;
@@ -243,7 +249,6 @@ interface AdminOverviewResponse {
 }
 
 type AdminPaymentRecord = AdminOverviewResponse["recentPayments"][number];
-type PaymentBucket = "wallet" | "redeem_code" | "legacy";
 
 interface SearchResponse {
   users: Array<{
@@ -341,10 +346,34 @@ interface ClientConfig {
 }
 
 const CODE_TEMPLATES = [
-  { label: "1h Trial", durationHours: 1, count: 10, note: "Fast-access trial batch" },
-  { label: "6h Burst", durationHours: 6, count: 10, note: "Short promo or testing wave" },
-  { label: "24h Standard", durationHours: 24, count: 20, note: "Default single-day package" },
-  { label: "72h Promo", durationHours: 72, count: 5, note: "Longer invite-only batch" },
+  {
+    label: "CDK Balance $10",
+    codeType: "wallet" as const,
+    walletAmount: 10,
+    count: 10,
+    note: "Balance topup CDKs for wallet credit.",
+  },
+  {
+    label: "CDK Balance $25",
+    codeType: "wallet" as const,
+    walletAmount: 25,
+    count: 10,
+    note: "Medium-value balance topup batch.",
+  },
+  {
+    label: "CDK 1h",
+    codeType: "duration" as const,
+    durationHours: 1,
+    count: 10,
+    note: "Fast-access one-time rental batch.",
+  },
+  {
+    label: "CDK 24h",
+    codeType: "duration" as const,
+    durationHours: 24,
+    count: 20,
+    note: "Default single-day package.",
+  },
 ];
 
 const CODE_FILTERS: Array<{ id: "all" | "available" | "used"; label: string }> = [
@@ -393,11 +422,13 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
   const [refreshing, setRefreshing] = useState(false);
   const [syncingComplianceStats, setSyncingComplianceStats] = useState(false);
   const [count, setCount] = useState("10");
+  const [codeType, setCodeType] = useState<"duration" | "wallet">("duration");
   const [durationHours, setDurationHours] = useState("24");
+  const [walletAmount, setWalletAmount] = useState("10");
   const [expiresAt, setExpiresAt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
-  const [editingDuration, setEditingDuration] = useState("");
+  const [editingValue, setEditingValue] = useState("");
   const [editingExpiresAt, setEditingExpiresAt] = useState("");
   const [codeFilter, setCodeFilter] = useState<"all" | "available" | "used">("all");
   const [selectedCodeIds, setSelectedCodeIds] = useState<string[]>([]);
@@ -509,6 +540,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
     const buckets: Record<PaymentBucket, AdminPaymentRecord[]> = {
       wallet: [],
       redeem_code: [],
+      x402: [],
       legacy: [],
     };
 
@@ -733,6 +765,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
     if (!token) return;
     setSubmitting(true);
     try {
+      const normalizedCodeType = codeType === "wallet" ? "wallet" : "duration";
       const res = await workerFetch("/api/admin/redeem-codes", {
         method: "POST",
         headers: {
@@ -741,7 +774,9 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
         },
         body: JSON.stringify({
           count: Number(count),
-          durationHours: Number(durationHours),
+          codeType: normalizedCodeType,
+          durationHours: normalizedCodeType === "duration" ? Number(durationHours) : undefined,
+          walletAmount: normalizedCodeType === "wallet" ? Number(walletAmount) : undefined,
           expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
         }),
       });
@@ -882,7 +917,11 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
 
   const startEditCode = (row: RedeemCodeRow) => {
     setEditingCodeId(row.redeem_codes.id);
-    setEditingDuration(String(row.redeem_codes.durationHours));
+    setEditingValue(
+      row.redeem_codes.codeType === "wallet"
+        ? String(row.redeem_codes.walletAmount || "")
+        : String(row.redeem_codes.durationHours),
+    );
     setEditingExpiresAt(
       row.redeem_codes.expiresAt
         ? new Date(row.redeem_codes.expiresAt).toISOString().slice(0, 16)
@@ -905,6 +944,21 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
 
   const handleUpdateCode = async () => {
     if (!token || !editingCodeId) return;
+    const current = codes.find((row) => row.redeem_codes.id === editingCodeId);
+    if (!current) return;
+
+    const payload = current.redeem_codes.codeType === "wallet"
+      ? {
+          codeType: "wallet",
+          walletAmount: Number(editingValue),
+          expiresAt: editingExpiresAt ? new Date(editingExpiresAt).toISOString() : null,
+        }
+      : {
+          codeType: "duration",
+          durationHours: Number(editingValue),
+          expiresAt: editingExpiresAt ? new Date(editingExpiresAt).toISOString() : null,
+        };
+
     try {
       const res = await workerFetch(`/api/admin/redeem-codes/${editingCodeId}`, {
         method: "PATCH",
@@ -912,10 +966,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          durationHours: Number(editingDuration),
-          expiresAt: editingExpiresAt ? new Date(editingExpiresAt).toISOString() : null,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -1015,38 +1066,41 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
   }
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-8 px-1 py-10 md:space-y-10 md:py-14">
-      <div className="flex flex-col gap-5 border-b border-black/5 pb-7 md:flex-row md:items-end md:justify-between">
-        <div>
+    <WorkspaceShell
+      header={(
+        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div>
             <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-muted-foreground">
               AnixOps Admin
             </div>
-          <h1 className="mt-2 text-4xl font-semibold tracking-tight md:text-5xl">
-            {copy.shellLabel}
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
-            Search users, inspect rentals, and manage redeem codes through a calmer, more deliberate control surface.
-          </p>
-        </div>
+            <h1 className="mt-2 text-4xl font-semibold tracking-tight md:text-5xl">
+              {copy.shellLabel}
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
+              Search users, inspect rentals, and manage redeem codes through a calmer, more deliberate control surface.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3 md:justify-end">
-          <TopPill label="Auto refresh" value="15s" />
-          <TopPill label="Build" value={`${versions.frontend} / ${versions.commit || "dev"}`} />
-          <TopPill
-            label="Synced"
-            value={lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : "Waiting"}
-            muted={!lastUpdatedAt}
-          />
-          <Button
-            variant="outline"
-            onClick={() => router.push("/")}
-            className="rounded-full border-black/10 bg-white/90 px-5 shadow-sm"
-          >
-            Back
-          </Button>
+          <div className="flex flex-wrap items-center gap-3 md:justify-end">
+            <TopPill label="Auto refresh" value="15s" />
+            <TopPill label="Build" value={`${versions.frontend} / ${versions.commit || "dev"}`} />
+            <TopPill
+              label="Synced"
+              value={lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : "Waiting"}
+              muted={!lastUpdatedAt}
+            />
+            <Button
+              variant="outline"
+              onClick={() => router.push("/")}
+              className="rounded-full border-black/10 bg-white/90 px-5 shadow-sm"
+            >
+              Back
+            </Button>
+          </div>
         </div>
-      </div>
-
+      )}
+    >
+    <div className="space-y-8 md:space-y-10">
       <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         {ADMIN_NAV.map((item) => (
           <Link
@@ -1091,19 +1145,8 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
             <DebugMetric label="Whitelist Size" value={String(overview.chainMode.whitelistSize || 0)} />
           </div>
           {overview.chainMode.readiness ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <MiniPanel>
-                <div className="font-medium">Crypto Topup Readiness</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {overview.chainMode.readiness.cryptoTopup.enabled ? "ready" : "disabled"} · missing {overview.chainMode.readiness.cryptoTopup.missingKeys.length}
-                </div>
-              </MiniPanel>
-              <MiniPanel>
-                <div className="font-medium">Audit Anchor Readiness</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {overview.chainMode.readiness.auditAnchor.enabled ? "ready" : "disabled"} · missing {overview.chainMode.readiness.auditAnchor.missingKeys.length}
-                </div>
-              </MiniPanel>
+            <div className="mt-4">
+              <ChainModeReadinessTable readiness={overview.chainMode.readiness} />
             </div>
           ) : null}
         </GlassCard>
@@ -1136,22 +1179,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
             title="Compliance Stats"
             description="Latest reject counters collected from tracked rentals."
           />
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {overview.compliance.recentStats.map((entry) => (
-              <MiniPanel key={entry.rentalId}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium tracking-tight">{entry.complianceProfileId || "standard"}</div>
-                  <Badge variant="outline" className="rounded-full">{entry.rejectPackets} rejects</Badge>
-                </div>
-                <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {entry.policyVersion || "no-policy-version"}
-                </div>
-                <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {entry.rentalId} · {formatDateTime(entry.lastSyncedAt)}
-                </div>
-              </MiniPanel>
-            ))}
-          </div>
+          <ComplianceStatsTable rows={overview.compliance.recentStats} />
         </GlassCard>
       ) : null}
 
@@ -1180,21 +1208,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
             )}
           />
 
-          <div className="grid gap-3 md:grid-cols-3">
-            {overview.systemHealth.checks.map((check) => (
-              <MiniPanel key={check.name}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium capitalize tracking-tight">{check.name}</div>
-                  <Badge variant={check.ok ? "default" : "destructive"} className="rounded-full">
-                    {check.ok ? "ok" : "failed"}
-                  </Badge>
-                </div>
-                {check.error && (
-                  <div className="mt-2 break-words text-xs leading-5 text-red-600">{check.error}</div>
-                )}
-              </MiniPanel>
-            ))}
-          </div>
+          <SystemHealthChecksTable rows={overview.systemHealth.checks} />
         </GlassCard>
       )}
 
@@ -1219,63 +1233,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
             <DebugMetric label="Reject Bytes" value={formatBytes(complianceStats.summary.rejectBytes)} />
             <DebugMetric label="Latest Sync" value={formatDateTime(complianceStats.summary.latestSyncedAt)} />
           </div>
-          {complianceStats.profiles.length > 0 ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {complianceStats.profiles.map((profile) => (
-                <MiniPanel key={profile.id}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="font-medium tracking-tight">{profile.name}</div>
-                      <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                        {profile.id} · {profile.version}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline" className="rounded-full">
-                        {profile.mode}
-                      </Badge>
-                      {profile.isDefault ? (
-                        <Badge variant="default" className="rounded-full">
-                          default
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="mt-3 text-xs leading-5 text-muted-foreground">
-                    blocked protocols: {profile.blockedProtocols.length > 0 ? profile.blockedProtocols.join(", ") : "none"}
-                  </div>
-                  <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                    allowed ports: {profile.allowedPorts.length > 0 ? profile.allowedPorts.join(", ") : "all"} · allowed CIDRs: {profile.allowedCidrs.length > 0 ? profile.allowedCidrs.join(", ") : "all"}
-                  </div>
-                </MiniPanel>
-              ))}
-            </div>
-          ) : null}
-          {complianceStats.rentals.length > 0 ? (
-            <div className="grid gap-3">
-              {complianceStats.rentals.map((entry) => (
-                <MiniPanel key={entry.rentalId}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="font-medium tracking-tight">{entry.complianceProfileId || "standard"}</div>
-                      <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                        {entry.rentalId} · {entry.ip || "pending-ip"} · {entry.compliancePolicyVersion || "no-policy-version"}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-medium">{String(entry.stats?.rejectPackets || 0)} rejects</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(entry.stats?.lastSyncedAt || null)}</div>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                    bytes={formatBytes(entry.stats?.rejectBytes || 0)} · status={entry.status} · detail={entry.stats?.detail || "not-synced"}
-                  </div>
-                </MiniPanel>
-              ))}
-            </div>
-          ) : (
-            <EmptyMessage>No compliance stats yet.</EmptyMessage>
-          )}
+          <ComplianceTrackingTables stats={complianceStats} />
         </GlassCard>
       ) : null}
 
@@ -1363,163 +1321,24 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.8fr)]">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                  Provisioning Rentals
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Generated {formatDateTime(overview.debug.generatedAt)}
-                </div>
-              </div>
+            <ProvisioningRentalsTable
+              rows={overview.debug.provisioningRentals}
+              generatedAt={overview.debug.generatedAt}
+              onOpenRental={loadRentalDetail}
+              onRelease={handleReleaseProvisioning}
+              loadingRentalId={loadingRentalId}
+              releasingRentalId={releasingRentalId}
+            />
 
-              {overview.debug.provisioningRentals.length === 0 ? (
-                <EmptyMessage>No rentals are currently provisioning.</EmptyMessage>
-              ) : (
-                overview.debug.provisioningRentals.map((rental) => (
-                  <MiniPanel key={rental.rentalId}>
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            onClick={() => loadRentalDetail(rental.rentalId)}
-                            className="font-mono text-xs font-semibold text-foreground underline-offset-4 hover:underline"
-                          >
-                            {rental.rentalId}
-                          </button>
-                          <Badge variant={rental.isStale ? "destructive" : "secondary"} className="rounded-full">
-                            {rental.isStale ? "stale" : "deploying"}
-                          </Badge>
-                        </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {rental.email || "Unknown user"} | {rental.protocol} | age {formatMinutes(rental.ageMinutes)}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => loadRentalDetail(rental.rentalId)}
-                          disabled={loadingRentalId === rental.rentalId}
-                          className="rounded-full border-black/10 bg-white/90"
-                        >
-                          {loadingRentalId === rental.rentalId ? "Loading..." : "Inspect"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleReleaseProvisioning(rental.rentalId)}
-                          disabled={!rental.canRelease || releasingRentalId === rental.rentalId}
-                          className="rounded-full"
-                        >
-                          {releasingRentalId === rental.rentalId ? "Releasing..." : "Release"}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid gap-2 md:grid-cols-4">
-                      <DebugField label="IP" value={rental.ip || "-"} mono />
-                      <DebugField label="VPS" value={rental.vpsId || "-"} mono />
-                      <DebugField label="Payment" value={`${rental.paymentMethod || "-"} / ${rental.paymentStatus || "-"}`} />
-                      <DebugField label="Expires In" value={rental.expiresInMinutes === null ? "-" : formatMinutes(rental.expiresInMinutes)} />
-                    </div>
-
-                    <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                      <div className="rounded-2xl border border-black/5 bg-slate-50/80 p-3">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                          Queue Match
-                        </div>
-                        {rental.queueJob ? (
-                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge
-                                variant={rental.queueJob.state === "failed" ? "destructive" : "outline"}
-                                className="rounded-full"
-                              >
-                                {rental.queueJob.state}
-                              </Badge>
-                              <span>{rental.queueJob.name} #{rental.queueJob.id || "-"}</span>
-                            </div>
-                            <div>
-                              attempts {rental.queueJob.attemptsMade}/{rental.queueJob.attempts ?? "?"} | last {formatJobTime(rental.queueJob)}
-                            </div>
-                            {rental.queueJob.failedReason && (
-                              <div className="break-words text-red-600">{rental.queueJob.failedReason}</div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="mt-2 text-xs text-muted-foreground">
-                            No recent waiting, active, delayed, or failed job matched this rental.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="rounded-2xl border border-black/5 bg-slate-50/80 p-3">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                          Last Audit
-                        </div>
-                        {rental.lastAudit ? (
-                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                            <div className="font-medium text-foreground">{rental.lastAudit.action}</div>
-                            {rental.lastAudit.detail && <div className="break-words">{rental.lastAudit.detail}</div>}
-                            <div>{formatDateTime(rental.lastAudit.createdAt)}</div>
-                          </div>
-                        ) : (
-                          <div className="mt-2 text-xs text-muted-foreground">No audit entry found.</div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 text-xs text-muted-foreground">
-                      {rental.canRelease
-                        ? "Release is enabled because this row has no IP and no VPS ID."
-                        : "Release is disabled because machine data exists; use Force Destroy from the rental detail."}
-                    </div>
-                  </MiniPanel>
-                ))
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                Recent Queue Activity
-              </div>
-              {overview.debug.queue.recentJobs.length === 0 ? (
-                <EmptyMessage>No recent provision jobs.</EmptyMessage>
-              ) : (
-                overview.debug.queue.recentJobs.slice(0, 8).map((job) => (
-                  <MiniPanel key={`${job.id}-${job.state}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium tracking-tight">{job.name}</div>
-                      <Badge variant={job.state === "failed" ? "destructive" : "outline"} className="rounded-full">
-                        {job.state}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 font-mono text-xs text-muted-foreground">
-                      {job.rentalId || JSON.stringify(job.data)}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      attempts {job.attemptsMade}/{job.attempts ?? "?"} | {formatJobTime(job)}
-                    </div>
-                    {job.failedReason && (
-                      <div className="mt-2 break-words text-xs text-red-600">{job.failedReason}</div>
-                    )}
-                  </MiniPanel>
-                ))
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                Recent Stage Logs
-              </div>
-              {overview.debug.stageLogs.length === 0 ? (
-                <EmptyMessage>No provision stage logs yet.</EmptyMessage>
-              ) : (
-                overview.debug.stageLogs.slice(0, 12).map((entry) => (
-                  <StageLogPanel key={entry.id} entry={entry} onOpen={entry.rentalId ? () => loadRentalDetail(entry.rentalId!) : undefined} />
-                ))
-              )}
+            <div className="space-y-6">
+              <RecentQueueJobsTable
+                rows={overview.debug.queue.recentJobs.slice(0, 8)}
+                onOpenRental={loadRentalDetail}
+              />
+              <RecentStageLogsTable
+                rows={overview.debug.stageLogs.slice(0, 12)}
+                onOpenRental={loadRentalDetail}
+              />
             </div>
           </div>
         </GlassCard>
@@ -1554,60 +1373,9 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
           </div>
 
           {searchResult && (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-3">
-                <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                  Users
-                </div>
-                {searchResult.users.length === 0 ? (
-                  <EmptyMessage>No users matched</EmptyMessage>
-                ) : (
-                  searchResult.users.map((user) => (
-                    <MiniPanel key={user.userId}>
-                      <div className="font-medium tracking-tight">{user.email || "Unknown"}</div>
-                      <div className="mt-1 font-mono text-xs text-muted-foreground">{user.userId}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {new Date(user.createdAt).toLocaleString()}
-                      </div>
-                    </MiniPanel>
-                  ))
-                )}
-              </div>
-
-              <div className="space-y-3">
-                <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                  Rentals
-                </div>
-                {searchResult.rentals.length === 0 ? (
-                  <EmptyMessage>No rentals matched</EmptyMessage>
-                ) : (
-                  searchResult.rentals.map((rental) => (
-                    <button
-                      key={rental.rentalId}
-                      onClick={() => loadRentalDetail(rental.rentalId)}
-                      className="w-full rounded-2xl border border-black/5 bg-white/95 p-4 text-left text-sm shadow-sm transition hover:-translate-y-0.5 hover:border-black/10 hover:shadow-md"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-medium tracking-tight">
-                          {rental.email || "Unknown user"}
-                        </div>
-                        <Badge
-                          variant={rental.status === "active" ? "default" : "secondary"}
-                          className="rounded-full"
-                        >
-                          {rental.status}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 font-mono text-xs text-muted-foreground">
-                        {rental.rentalId}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {rental.protocol} | {rental.ip || "-"}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              <SearchUsersTable rows={searchResult.users} />
+              <SearchRentalsTable rows={searchResult.rentals} onOpenRental={loadRentalDetail} />
             </div>
           )}
         </GlassCard>
@@ -1621,24 +1389,18 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
             action={<Badge variant="outline" className="rounded-full px-3">{CODE_TEMPLATES.length}</Badge>}
           />
 
-          <div className="space-y-3">
-            {CODE_TEMPLATES.map((template) => (
-              <button
-                key={template.label}
-                onClick={() => {
-                  setCount(String(template.count));
-                  setDurationHours(String(template.durationHours));
-                }}
-                className="w-full rounded-2xl border border-black/5 bg-white/95 p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-black/10 hover:shadow-md"
-              >
-                <div className="font-medium tracking-tight">{template.label}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {template.durationHours}h | default {template.count} codes
-                </div>
-                <div className="mt-2 text-xs text-muted-foreground">{template.note}</div>
-              </button>
-            ))}
-          </div>
+          <CodeTemplatesTable
+            templates={CODE_TEMPLATES}
+            onApplyTemplate={(template) => {
+              setCount(String(template.count));
+              setCodeType(template.codeType);
+              if (template.codeType === "wallet") {
+                setWalletAmount(String(template.walletAmount ?? 10));
+              } else {
+                setDurationHours(String(template.durationHours ?? 24));
+              }
+            }}
+          />
         </GlassCard>
         )}
       </div>
@@ -1736,21 +1498,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium tracking-tight">Provision Stage Log</div>
-                  <Badge variant="outline" className="rounded-full px-3">
-                    {selectedRental.stageLogs?.length || 0}
-                  </Badge>
-                </div>
-                <div className="space-y-2">
-                  {selectedRental.stageLogs?.length ? (
-                    selectedRental.stageLogs.map((entry) => (
-                      <StageLogPanel key={entry.id} entry={entry} />
-                    ))
-                  ) : (
-                    <EmptyMessage>No stage logs for this rental yet.</EmptyMessage>
-                  )}
-                </div>
+                <RecentStageLogsTable rows={selectedRental.stageLogs || []} />
               </div>
 
               <div className="space-y-2">
@@ -1763,24 +1511,14 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm font-medium tracking-tight">Recent Rental Audit</div>
-                <div className="space-y-2">
-                  {selectedRental.recentAuditEntries.length === 0 ? (
-                    <EmptyMessage>No audit entries</EmptyMessage>
-                  ) : (
-                    selectedRental.recentAuditEntries.map((entry) => (
-                      <MiniPanel key={entry.id}>
-                        <div className="font-medium tracking-tight">{entry.action}</div>
-                        {entry.detail && (
-                          <div className="mt-1 text-xs text-muted-foreground">{entry.detail}</div>
-                        )}
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {new Date(entry.createdAt).toLocaleString()}
-                        </div>
-                      </MiniPanel>
-                    ))
-                  )}
-                </div>
+                <ConsoleAuditTable
+                  title="Recent Rental Audit"
+                  entries={selectedRental.recentAuditEntries.map((entry) => ({
+                    ...entry,
+                    rentalId: selectedRental.rental.rentalId,
+                  }))}
+                  empty="No audit entries for this rental yet."
+                />
               </div>
             </div>
           )}
@@ -1788,276 +1526,41 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
         </div>
         )}
 
-        {showProvisioning && (
-        <GlassCard>
-          <SectionHeader
-            title="Recent Failed Jobs"
-            description="Provision queue failures and recent stack traces."
-            action={<Badge variant="outline" className="rounded-full px-3">{overview?.recentFailedJobs.length || 0}</Badge>}
-          />
-
-          <div className="space-y-3">
-            {overview?.recentFailedJobs?.length ? (
-              overview.recentFailedJobs.map((job) => (
-                <MiniPanel key={String(job.id)}>
-                  <div className="font-medium tracking-tight">{job.name}</div>
-                  <div className="mt-1 font-mono text-xs text-muted-foreground">
-                    {JSON.stringify(job.data)}
-                  </div>
-                  <div className="mt-2 text-xs text-red-600">{job.failedReason}</div>
-                  {job.stacktrace?.[0] && (
-                    <div className="mt-2 text-[11px] text-muted-foreground">{job.stacktrace[0]}</div>
-                  )}
-                </MiniPanel>
-              ))
-            ) : (
-              <EmptyMessage>No failed jobs.</EmptyMessage>
-            )}
-          </div>
-        </GlassCard>
+        {showProvisioning && overview?.debug && (
+          <RecentFailedJobsTable rows={overview?.recentFailedJobs ?? []} onOpenRental={loadRentalDetail} />
         )}
       </div>
       )}
 
       {overview && (showRentals || showActivity) && (
         <div className="grid gap-6 xl:grid-cols-3">
-          {showRentals && (
-          <GlassCard>
-            <SectionHeader
-              title="Recent Rentals"
-              description="Newest rental records across the system."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentRentals.length}</Badge>}
-            />
-            <div className="space-y-3">
-              {overview.recentRentals.map((rental) => (
-                <button
-                  key={rental.rentalId}
-                  onClick={() => loadRentalDetail(rental.rentalId)}
-                  className="w-full rounded-2xl border border-black/5 bg-white/95 p-4 text-left text-sm shadow-sm transition hover:-translate-y-0.5 hover:border-black/10 hover:shadow-md"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium tracking-tight">{rental.email || "Unknown user"}</div>
-                    <Badge variant={rental.status === "active" ? "default" : "secondary"} className="rounded-full">
-                      {rental.status}
-                    </Badge>
-                  </div>
-                  <div className="mt-1 font-mono text-xs text-muted-foreground">{rental.rentalId}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {rental.protocol} | ${rental.totalPrice.toFixed(2)}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </GlassCard>
-          )}
+          {showRentals && <RecentRentalsTable rows={overview.recentRentals} onOpenRental={loadRentalDetail} />}
 
           {showActivity && (
           <GlassCard>
             <SectionHeader
-              title="Recent Fiat Topups"
-              description="Stripe balance recharge records."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentTopups.length}</Badge>}
+              title="Activity"
+              description="Topups, balance movement, payments, anchors, and audit events are split into dedicated tables."
             />
-            <div className="space-y-3">
-              {overview.recentTopups.length === 0 ? (
-                <EmptyMessage>No fiat topups yet.</EmptyMessage>
-              ) : (
-                overview.recentTopups.map((topup) => (
-                  <MiniPanel key={topup.topupId}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium tracking-tight">{topup.email || "Unknown user"}</div>
-                      <Badge variant={topup.status === "completed" ? "default" : "secondary"} className="rounded-full">
-                        {topup.status}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      ${topup.amount.toFixed(2)} {topup.currency.toUpperCase()} | {topup.provider}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      created {formatDateTime(topup.createdAt)} · completed {formatDateTime(topup.completedAt)}
-                    </div>
-                  </MiniPanel>
-                ))
-              )}
-            </div>
-          </GlassCard>
-          )}
-
-          {showActivity && (
-          <GlassCard>
-            <SectionHeader
-              title="Recent Crypto Topups"
-              description="Wallet and X402 on-chain recharge records."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentCryptoTopups.length}</Badge>}
-            />
-            <div className="space-y-3">
-              {overview.recentCryptoTopups.length === 0 ? (
-                <EmptyMessage>No crypto topups yet.</EmptyMessage>
-              ) : (
-                overview.recentCryptoTopups.map((topup) => (
-                  <MiniPanel key={topup.topupId}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium tracking-tight">{topup.email || "Unknown user"}</div>
-                      <Badge variant={topup.status === "completed" ? "default" : "secondary"} className="rounded-full">
-                        {topup.status}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      ${topup.fiatAmount.toFixed(2)} {topup.currency.toUpperCase()} | {topup.rail} | {topup.network} | {topup.asset}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      tx {topup.txHash || "-"} · {formatDateTime(topup.createdAt)}
-                    </div>
-                  </MiniPanel>
-                ))
-              )}
-            </div>
-          </GlassCard>
-          )}
-
-          {showActivity && (
-          <GlassCard>
-            <SectionHeader
-              title="Recent Wallet Ledger"
-              description="Wallet credits and billing charges that drive the balance."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentWalletLedgerEntries.length}</Badge>}
-            />
-            <div className="space-y-3">
-              {overview.recentWalletLedgerEntries.length === 0 ? (
-                <EmptyMessage>No wallet ledger entries yet.</EmptyMessage>
-              ) : (
-                overview.recentWalletLedgerEntries.map((entry) => (
-                  <MiniPanel key={entry.entryId}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium tracking-tight">{entry.email || "Unknown user"}</div>
-                      <Badge variant={entry.amount >= 0 ? "default" : "destructive"} className="rounded-full">
-                        {entry.type}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {entry.amount >= 0 ? "+" : ""}{entry.amount.toFixed(2)} {entry.currency.toUpperCase()} · balance {entry.balanceAfter.toFixed(2)}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      rental {entry.rentalId || "-"} · topup {entry.topupId || "-"} · {formatDateTime(entry.createdAt)}
-                    </div>
-                  </MiniPanel>
-                ))
-              )}
-            </div>
-          </GlassCard>
-          )}
-
-          {showActivity && (
-          <GlassCard>
-            <SectionHeader
-              title="Recent Checkout Records"
-              description="Wallet checkouts, redeem-code rentals, and legacy direct payments are separated here. Wallet balance debits live in the wallet ledger block above."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentPayments.length}</Badge>}
-            />
-            <div className="grid gap-3 md:grid-cols-3">
-              <DebugMetric label="Wallet Checkouts" value={String(recentPaymentBuckets.wallet.length)} />
-              <DebugMetric label="Redeem-code Rentals" value={String(recentPaymentBuckets.redeem_code.length)} />
-              <DebugMetric label="Legacy Direct Payments" value={String(recentPaymentBuckets.legacy.length)} />
-            </div>
-            <div className="grid gap-3 xl:grid-cols-3">
-              <PaymentBucketPanel
-                title="Wallet Checkouts"
-                description="Current wallet-balance checkout records."
-                payments={recentPaymentBuckets.wallet}
-                empty="No wallet checkout records yet."
+            <div className="space-y-6">
+              <RecentFiatTopupsTable rows={overview.recentTopups} />
+              <RecentCryptoTopupsTable rows={overview.recentCryptoTopups} />
+              <RecentWalletLedgerTable rows={overview.recentWalletLedgerEntries} />
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <DebugMetric label="Wallet Checkouts" value={String(recentPaymentBuckets.wallet.length)} />
+                  <DebugMetric label="Redeem-code Rentals" value={String(recentPaymentBuckets.redeem_code.length)} />
+                  <DebugMetric label="X402 Rails" value={String(recentPaymentBuckets.x402.length)} />
+                  <DebugMetric label="Legacy Direct Payments" value={String(recentPaymentBuckets.legacy.length)} />
+                </div>
+                <RecentPaymentsTable rows={overview.recentPayments} onOpenRental={loadRentalDetail} />
+              </div>
+              <RecentAnchorBatchesTable
+                rows={overview.recentAnchorBatches}
+                onVerify={handleVerifyAnchorBatch}
+                verifyingBatchId={verifyingAnchorBatchId}
               />
-              <PaymentBucketPanel
-                title="Redeem-code Rentals"
-                description="Rentals created from redeem-code redemptions."
-                payments={recentPaymentBuckets.redeem_code}
-                empty="No redeem-code rentals yet."
-              />
-              <PaymentBucketPanel
-                title="Legacy Direct Payments"
-                description="Stripe, X402, and older direct payment records."
-                payments={recentPaymentBuckets.legacy}
-                empty="No legacy direct payments yet."
-              />
-            </div>
-          </GlassCard>
-          )}
-
-          {showActivity && (
-          <GlassCard>
-            <SectionHeader
-              title="Recent Audit Anchors"
-              description="Anchor batches, chain tx hashes, and receipt state for audit recovery."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentAnchorBatches.length}</Badge>}
-            />
-            <div className="space-y-3">
-              {overview.recentAnchorBatches.length === 0 ? (
-                <EmptyMessage>No audit anchor batches yet.</EmptyMessage>
-              ) : (
-                overview.recentAnchorBatches.map((batch) => (
-                  <MiniPanel key={batch.batchId}>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="font-medium tracking-tight">{batch.batchId}</div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={batch.status === "anchored" ? "default" : "secondary"} className="rounded-full">
-                          {batch.status}
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleVerifyAnchorBatch(batch.batchId)}
-                          disabled={verifyingAnchorBatchId === batch.batchId}
-                          className="rounded-full border-black/10 bg-white/90"
-                        >
-                          {verifyingAnchorBatchId === batch.batchId ? "Verifying..." : "Verify"}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {batch.chain || "-"} | {batch.eventCount} events | receipt {batch.hasReceipt ? "yes" : "no"}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      tx {batch.txHash || "-"} · created {formatDateTime(batch.createdAt)} · anchored {formatDateTime(batch.anchoredAt)}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {batch.receiptSummary
-                        ? `receipt block ${batch.receiptSummary.blockNumber ?? "-"} · status ${batch.receiptSummary.status ?? "-"} · gas ${batch.receiptSummary.gasUsed || "-"}`
-                        : batch.txHash
-                          ? "receipt missing; rerun the worker with the stored txHash to recover."
-                          : "receipt missing; no txHash stored yet."}
-                    </div>
-                    <div className="mt-1 break-all text-[11px] text-muted-foreground">
-                      {batch.merkleRoot}
-                    </div>
-                  </MiniPanel>
-                ))
-              )}
-            </div>
-          </GlassCard>
-          )}
-
-          {showActivity && (
-          <GlassCard>
-            <SectionHeader
-              title="Recent Audit"
-              description="Latest state-changing events from the platform."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentAuditEntries.length}</Badge>}
-            />
-            <div className="space-y-3">
-              {overview.recentAuditEntries.length === 0 ? (
-                <EmptyMessage>No audit entries yet.</EmptyMessage>
-              ) : (
-                overview.recentAuditEntries.map((entry) => (
-                  <MiniPanel key={entry.id}>
-                    <div className="font-medium tracking-tight">{entry.action}</div>
-                    {entry.detail && (
-                      <div className="mt-1 text-xs text-muted-foreground">{entry.detail}</div>
-                    )}
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {new Date(entry.createdAt).toLocaleString()}
-                    </div>
-                  </MiniPanel>
-                ))
-              )}
+              <ConsoleAuditTable title="Recent Audit" entries={overview.recentAuditEntries} empty="No audit entries yet." />
             </div>
           </GlassCard>
           )}
@@ -2068,9 +1571,10 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
       <GlassCard>
         <SectionHeader
           title="Generate Codes"
-          description="Create a fresh code batch with a defined duration and expiry."
+          description="Create a CDK batch for either wallet credit or one-time rental."
         />
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div>
             <Label>Count</Label>
             <Input
@@ -2083,11 +1587,43 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
             />
           </div>
           <div>
-            <Label>Duration Hours</Label>
+            <Label>Code Type</Label>
+            <div className="mt-1 grid gap-2 sm:grid-cols-2">
+              {(["wallet", "duration"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setCodeType(type)}
+                  className={`rounded-2xl border px-4 py-3 text-left text-sm transition ${
+                    codeType === type
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-black/10 bg-white/90 text-foreground hover:bg-white"
+                  }`}
+                >
+                  <div className="font-medium">{formatRedeemCodeTypeLabel(type, isZh)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {type === "wallet"
+                      ? (isZh ? "生成后进入钱包余额。" : "Credits the wallet balance on redemption.")
+                      : (isZh ? "生成后直接创建一次租用。" : "Creates one prepaid rental on redemption.")}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Label>{codeType === "wallet" ? (isZh ? "金额 (USD)" : "Amount (USD)") : (isZh ? "时长 (小时)" : "Duration (hours)")}</Label>
             <Input
-              value={durationHours}
-              onChange={(e) => setDurationHours(e.target.value)}
+              value={codeType === "wallet" ? walletAmount : durationHours}
+              onChange={(e) => {
+                if (codeType === "wallet") {
+                  setWalletAmount(e.target.value);
+                } else {
+                  setDurationHours(e.target.value);
+                }
+              }}
               type="number"
+              min={codeType === "wallet" ? "0.01" : "1"}
+              step={codeType === "wallet" ? "0.01" : "1"}
               className="mt-1 rounded-2xl border-black/10 bg-white/95 shadow-sm"
             />
           </div>
@@ -2101,6 +1637,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
             />
           </div>
         </div>
+        </div>
         <div className="flex justify-end">
           <Button onClick={handleGenerate} disabled={submitting} className="rounded-full px-5 shadow-sm">
             {submitting ? "Generating..." : "Generate and Copy"}
@@ -2113,7 +1650,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
       <GlassCard>
         <SectionHeader
           title="Redeem Codes"
-          description="Edit durations, control expiry, filter visible rows, and delete in bulk."
+          description="Edit code type, control expiry, filter visible rows, and delete in bulk."
           action={
             <div className="flex flex-wrap gap-2">
               {CODE_FILTERS.map((filter) => (
@@ -2152,129 +1689,27 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
         {loading ? (
           <EmptyMessage>Loading...</EmptyMessage>
         ) : (
-          <div className="overflow-hidden rounded-[24px] border border-black/5 bg-white/95 shadow-inner">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead className="bg-slate-50/80 text-left text-muted-foreground">
-                  <tr className="border-b border-black/5">
-                    <th className="px-4 py-3 font-medium">
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleSelectAllVisible}
-                        className="h-4 w-4"
-                      />
-                    </th>
-                    <th className="px-4 py-3 font-medium">Code</th>
-                    <th className="px-4 py-3 font-medium">Duration</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Used By</th>
-                    <th className="px-4 py-3 font-medium">Expires</th>
-                    <th className="px-4 py-3 font-medium">Created</th>
-                    <th className="px-4 py-3 text-right font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCodes.map((row) => {
-                    const code = row.redeem_codes;
-                    const used = Boolean(code.usedBy);
-                    const isEditing = editingCodeId === code.id;
-                    return (
-                      <tr key={code.id} className="border-b border-black/5 last:border-0">
-                        <td className="px-4 py-4">
-                          <input
-                            type="checkbox"
-                            checked={selectedCodeIds.includes(code.id)}
-                            disabled={used}
-                            onChange={() => toggleCodeSelection(code.id)}
-                            className="h-4 w-4"
-                          />
-                        </td>
-                        <td className="px-4 py-4 font-mono text-xs">{code.code}</td>
-                        <td className="px-4 py-4">
-                          {isEditing ? (
-                            <Input
-                              value={editingDuration}
-                              onChange={(e) => setEditingDuration(e.target.value)}
-                              type="number"
-                              className="h-9 w-24 rounded-full border-black/10 bg-white/95 shadow-sm"
-                            />
-                          ) : (
-                            `${code.durationHours}h`
-                          )}
-                        </td>
-                        <td className="px-4 py-4">
-                          <Badge variant={used ? "secondary" : "default"} className="rounded-full">
-                            {used ? "Used" : "Available"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-4 text-xs">{row.users?.email || "-"}</td>
-                        <td className="px-4 py-4 text-xs">
-                          {isEditing ? (
-                            <Input
-                              value={editingExpiresAt}
-                              onChange={(e) => setEditingExpiresAt(e.target.value)}
-                              type="datetime-local"
-                              className="h-9 min-w-[180px] rounded-full border-black/10 bg-white/95 shadow-sm"
-                            />
-                          ) : code.expiresAt ? (
-                            new Date(code.expiresAt).toLocaleString()
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-xs">{new Date(code.createdAt).toLocaleString()}</td>
-                        <td className="px-4 py-4 text-right">
-                          <div className="flex justify-end gap-2">
-                            {isEditing ? (
-                              <>
-                                <Button size="sm" onClick={handleUpdateCode} className="rounded-full">
-                                  Save
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setEditingCodeId(null)}
-                                  className="rounded-full border-black/10 bg-white/90"
-                                >
-                                  Cancel
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => startEditCode(row)}
-                                  className="rounded-full border-black/10 bg-white/90"
-                                >
-                                  Edit
-                                </Button>
-                                {!used && (
-                                  <Button
-                                    size="sm"
-                                    variant="destructive"
-                                    onClick={() => handleDeleteCode(row)}
-                                    className="rounded-full"
-                                  >
-                                    Delete
-                                  </Button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <RedeemCodesTable
+            rows={filteredCodes}
+            selectedCodeIds={selectedCodeIds}
+            allVisibleSelected={allVisibleSelected}
+            editingCodeId={editingCodeId}
+            editingValue={editingValue}
+            editingExpiresAt={editingExpiresAt}
+            onToggleSelectAllVisible={toggleSelectAllVisible}
+            onToggleCodeSelection={toggleCodeSelection}
+            onStartEdit={startEditCode}
+            onCancelEdit={() => setEditingCodeId(null)}
+            onUpdateCode={handleUpdateCode}
+            onDeleteCode={handleDeleteCode}
+            onEditingValueChange={setEditingValue}
+            onEditingExpiresAtChange={setEditingExpiresAt}
+          />
         )}
       </GlassCard>
       )}
     </div>
+    </WorkspaceShell>
   );
 }
 
@@ -2284,23 +1719,6 @@ export default function AdminPage() {
 
 function getQueueCount(counts: Record<string, number>, key: string) {
   return Number(counts[key] ?? 0);
-}
-
-function formatMinutes(value: number) {
-  const rounded = Math.trunc(value);
-  const sign = rounded < 0 ? "-" : "";
-  const absolute = Math.abs(rounded);
-  if (absolute >= 1440) {
-    const days = Math.floor(absolute / 1440);
-    const hours = Math.floor((absolute % 1440) / 60);
-    return `${sign}${days}d ${hours}h`;
-  }
-  if (absolute >= 60) {
-    const hours = Math.floor(absolute / 60);
-    const minutes = absolute % 60;
-    return `${sign}${hours}h ${minutes}m`;
-  }
-  return `${sign}${absolute}m`;
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -2326,66 +1744,6 @@ function formatBytes(value: number) {
 
   const fractionDigits = size >= 10 || unitIndex === 0 ? 0 : 1;
   return `${size.toFixed(fractionDigits)} ${units[unitIndex]}`;
-}
-
-function classifyAdminPaymentBucket(method: string | null | undefined): PaymentBucket {
-  if (method === "wallet") {
-    return "wallet";
-  }
-  if (method === "redeem_code") {
-    return "redeem_code";
-  }
-  return "legacy";
-}
-
-function formatAdminPaymentMethod(method: string | null | undefined) {
-  switch (method) {
-    case "wallet":
-      return "Wallet checkout";
-    case "redeem_code":
-      return "Redeem-code rental";
-    case "stripe":
-      return "Stripe direct";
-    case "x402":
-      return "X402 direct";
-    case "free_trial":
-      return "Free trial";
-    case null:
-    case undefined:
-    case "":
-      return "Unknown";
-    default:
-      return method;
-  }
-}
-
-function getPaymentStatusVariant(status: string) {
-  if (["completed", "paid"].includes(status)) {
-    return "default";
-  }
-  if (["failed", "refunded"].includes(status)) {
-    return "destructive";
-  }
-  return "secondary";
-}
-
-function formatJobTime(job: Pick<ProvisionDebugJob, "finishedOn" | "processedOn" | "timestamp">) {
-  const value = job.finishedOn ?? job.processedOn ?? job.timestamp;
-  return value ? new Date(value).toLocaleString() : "-";
-}
-
-function getStageBadgeVariant(status: ProvisionStageAuditEntry["status"]) {
-  if (status === "failed") return "destructive";
-  if (status === "ok") return "default";
-  return "outline";
-}
-
-function formatStageMeta(meta: Record<string, unknown>) {
-  const entries = Object.entries(meta || {});
-  if (entries.length === 0) {
-    return "";
-  }
-  return entries.map(([key, value]) => `${key}=${String(value)}`).join(", ");
 }
 
 function getConfigString(config: Record<string, unknown>, key: string) {
@@ -2424,41 +1782,6 @@ function GlassCard({
     >
       {children}
     </Card>
-  );
-}
-
-function StageLogPanel({
-  entry,
-  onOpen,
-}: {
-  entry: ProvisionStageAuditEntry;
-  onOpen?: () => void;
-}) {
-  const meta = formatStageMeta(entry.meta);
-  return (
-    <MiniPanel>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={getStageBadgeVariant(entry.status)} className="rounded-full">
-              {entry.status}
-            </Badge>
-            <span className="font-mono text-xs font-semibold">{entry.stage}</span>
-          </div>
-          <div className="mt-2 text-xs font-medium tracking-tight">{entry.message}</div>
-          {entry.rentalId && (
-            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{entry.rentalId}</div>
-          )}
-          {meta && <div className="mt-1 break-words text-[11px] text-muted-foreground">{meta}</div>}
-          <div className="mt-1 text-[11px] text-muted-foreground">{formatDateTime(entry.createdAt)}</div>
-        </div>
-        {onOpen && (
-          <Button size="sm" variant="outline" onClick={onOpen} className="rounded-full border-black/10 bg-white/90">
-            Inspect
-          </Button>
-        )}
-      </div>
-    </MiniPanel>
   );
 }
 
@@ -2524,67 +1847,6 @@ function TopPill({
       <span className={`font-medium ${muted ? "text-muted-foreground" : "text-foreground"}`}>{label}</span>
       <span className="ml-2">{value}</span>
     </div>
-  );
-}
-
-function MiniPanel({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-black/5 bg-white/95 p-4 text-sm shadow-sm">
-      {children}
-    </div>
-  );
-}
-
-function PaymentBucketPanel({
-  title,
-  description,
-  payments,
-  empty,
-}: {
-  title: string;
-  description: string;
-  payments: AdminPaymentRecord[];
-  empty: string;
-}) {
-  return (
-    <MiniPanel>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-medium tracking-tight">{title}</div>
-          <div className="mt-1 text-xs leading-5 text-muted-foreground">{description}</div>
-        </div>
-        <Badge variant="outline" className="rounded-full">
-          {payments.length}
-        </Badge>
-      </div>
-      <div className="mt-3 space-y-2">
-        {payments.length === 0 ? (
-          <EmptyMessage>{empty}</EmptyMessage>
-        ) : (
-          payments.map((payment) => (
-            <div key={payment.paymentId} className="rounded-2xl border border-black/5 bg-slate-50/70 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium tracking-tight">{payment.email || "Unknown user"}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {payment.amount.toFixed(2)} {payment.currency.toUpperCase()} · rental {payment.rentalId || "-"}
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
-                </div>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Badge variant="outline" className="rounded-full">
-                    {formatAdminPaymentMethod(payment.method)}
-                  </Badge>
-                  <Badge variant={getPaymentStatusVariant(payment.status)} className="rounded-full">
-                    {payment.status}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </MiniPanel>
   );
 }
 

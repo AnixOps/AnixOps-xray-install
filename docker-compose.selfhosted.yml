@@ -129,12 +129,14 @@ services:
       dockerfile: Dockerfile.web
       args:
         NEXT_PUBLIC_WORKER_URL: ${NEXT_PUBLIC_WORKER_URL:-}
+        NEXT_PUBLIC_RELEASE_PROFILE: ${NEXT_PUBLIC_RELEASE_PROFILE:-}
     ports:
       - "${WEB_PORT:-30000}:30000"
     environment:
       - HOSTNAME=0.0.0.0
       - API_URL=http://api:8787
       - NEXT_PUBLIC_WORKER_URL=${NEXT_PUBLIC_WORKER_URL:-}
+      - NEXT_PUBLIC_RELEASE_PROFILE=${NEXT_PUBLIC_RELEASE_PROFILE:-}
     depends_on:
       - api
     restart: unless-stopped

@@ -1,6 +1,6 @@
 # AnixOps 剩余实施差距清单
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 ## 目的
 
@@ -20,6 +20,8 @@ Last updated: 2026-05-08
 | 合规统计更细展示 | Partial | 管理端和控制台已展示 profile、blocked protocol、reject stats 和 sync coverage；仍可继续补导出、告警和更细的用户端统计 | P2 |
 
 ## 需要先决策的问题
+
+正式版 V1 的充值通道已经收口到 `CDK` 兑换码，两种首发形态分别是 `wallet` 余额直充型和 `duration` 单次型。`Stripe`、链上钱包充值和 `X402` 不进入首发，保留为后续版本选项。
 
 - 合规模式是否是正式产品线，还是仅作为安全增强选项。
 - 合规模式下是否隐藏或禁用 `Hysteria2`。

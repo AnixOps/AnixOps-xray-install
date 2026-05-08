@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Badge, useToast } from "@/components/ui";
+import { Button, Card, Badge, Tabs, TabsContent, TabsList, TabsTrigger, useToast } from "@/components/ui";
+import { WizardSummaryRow as SummaryRow } from "@/components/layout/WizardLayout";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { RENTAL_PLANS } from "@/lib/deploy/types";
 import { workerFetch } from "@/lib/api/client";
@@ -305,25 +306,27 @@ export function RentalDashboard({
                 </Badge>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
-                  <button
-                    key={key}
-                    className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
-                      selectedClient === key
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-black/10 bg-white/70 hover:bg-white"
-                    }`}
-                    onClick={() => setSelectedClient(key)}
-                  >
-                    {clientLabels[key]}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                value={selectedClient}
+                onValueChange={(value) => setSelectedClient(value as typeof selectedClient)}
+                className="space-y-4"
+              >
+                <TabsList className="flex h-auto w-full flex-wrap gap-2 rounded-[1.5rem] border border-black/5 bg-white/70 p-2">
+                  {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
+                    <TabsTrigger key={key} value={key} className="rounded-xl px-4 py-2 text-xs font-semibold">
+                      {clientLabels[key]}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
 
-              <div className="code-block max-h-72 overflow-auto whitespace-pre-wrap">
-                {currentClientConfig}
-              </div>
+                {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
+                  <TabsContent key={key} value={key} className="space-y-3">
+                    <div className="code-block max-h-72 overflow-auto whitespace-pre-wrap">
+                      {config?.[key] || ""}
+                    </div>
+                  </TabsContent>
+                ))}
+              </Tabs>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Button
@@ -521,25 +524,6 @@ function PreviewMetric({ label, value }: { label: string; value: string }) {
     <div className="rounded-[1.35rem] border border-white/10 bg-white/10 p-4 backdrop-blur-xl">
       <div className="text-[11px] uppercase tracking-[0.22em] text-white/44">{label}</div>
       <div className="mt-2 text-sm font-semibold">{value}</div>
-    </div>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-[1.2rem] border border-black/5 bg-white/70 px-4 py-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={`max-w-[65%] text-right text-sm ${mono ? "break-all font-mono" : "font-medium text-foreground"}`}>
-        {value}
-      </span>
     </div>
   );
 }

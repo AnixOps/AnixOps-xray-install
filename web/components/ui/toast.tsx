@@ -1,7 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback } from "react";
-import { cn } from "./index";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { Toaster, toast as sonnerToast } from "sonner";
 
 type ToastType = "success" | "error" | "warning" | "info";
 
@@ -14,11 +14,13 @@ interface Toast {
 
 interface ToastContextValue {
   toasts: Toast[];
-  showToast: (message: string, type: ToastType, duration?: number) => void;
+  showToast: (message: string, type?: ToastType, duration?: number) => void;
   dismissToast: (id: string) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
+
+const MAX_TOAST_DURATION = 2_147_483_647;
 
 function createToastId() {
   if (globalThis.crypto?.randomUUID) {
@@ -28,7 +30,24 @@ function createToastId() {
   const random = globalThis.crypto?.getRandomValues
     ? Array.from(globalThis.crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(16)).join("")
     : Math.random().toString(16).slice(2);
+
   return `toast-${Date.now().toString(16)}-${random}`;
+}
+
+function emitToast(message: string, type: ToastType, duration: number, id: string) {
+  const options = { duration, id };
+
+  switch (type) {
+    case "success":
+      return sonnerToast.success(message, options);
+    case "error":
+      return sonnerToast.error(message, options);
+    case "warning":
+      return sonnerToast.warning(message, options);
+    case "info":
+    default:
+      return sonnerToast.info(message, options);
+  }
 }
 
 export function useToast() {
@@ -41,78 +60,67 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timerRefs = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const dismissToast = useCallback((id: string) => {
+    const timer = timerRefs.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timerRefs.current.delete(id);
+    }
+    sonnerToast.dismiss(id);
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const showToast = useCallback((message: string, type: ToastType = "info", duration = 5000) => {
-    const id = createToastId();
-    const toast: Toast = { id, message, type, duration };
-    setToasts((prev) => [...prev, toast]);
+  const showToast = useCallback(
+    (message: string, type: ToastType = "info", duration = 5000) => {
+      const id = createToastId();
+      const effectiveDuration = duration > 0 ? duration : MAX_TOAST_DURATION;
+      setToasts((prev) => [...prev, { id, message, type, duration: effectiveDuration }]);
+      emitToast(message, type, effectiveDuration, id);
 
-    if (duration > 0) {
-      setTimeout(() => dismissToast(id), duration);
-    }
-  }, [dismissToast]);
+      if (duration > 0) {
+        const timer = setTimeout(() => {
+          timerRefs.current.delete(id);
+          setToasts((prev) => prev.filter((t) => t.id !== id));
+        }, duration);
+        timerRefs.current.set(id, timer);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      timerRefs.current.forEach((timer) => clearTimeout(timer));
+      timerRefs.current.clear();
+    };
+  }, []);
 
   return (
     <ToastContext.Provider value={{ toasts, showToast, dismissToast }}>
       {children}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <Toaster
+        position="top-right"
+        richColors
+        closeButton
+        expand
+        theme="system"
+        toastOptions={{
+          classNames: {
+            toast:
+              "rounded-[1.5rem] border border-border/70 bg-white/92 text-foreground shadow-[0_14px_36px_rgba(15,23,42,0.14)] backdrop-blur-xl dark:bg-slate-950/95 dark:text-slate-50",
+            title: "text-sm font-medium tracking-[-0.01em]",
+            description: "text-sm leading-6 text-muted-foreground",
+            closeButton:
+              "border border-border/70 bg-background/90 text-muted-foreground hover:bg-muted dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10",
+            success: "border-emerald-200/80",
+            error: "border-rose-200/80",
+            warning: "border-amber-200/80",
+            info: "border-sky-200/80",
+          },
+        }}
+      />
     </ToastContext.Provider>
-  );
-}
-
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
-  return (
-    <div className="pointer-events-none fixed inset-x-4 top-4 z-50 flex flex-col items-stretch gap-2 md:right-4 md:left-auto md:w-[380px]">
-      {toasts.map((toast) => (
-        <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} />
-      ))}
-    </div>
-  );
-}
-
-function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
-  const icons: Record<ToastType, string> = {
-    success: "OK",
-    error: "!",
-    warning: "!",
-    info: "i",
-  };
-
-  const styles: Record<ToastType, string> = {
-    success: "border-green-200/80 text-green-800 before:bg-green-500",
-    error: "border-red-200/80 text-red-800 before:bg-red-500",
-    warning: "border-amber-200/80 text-amber-800 before:bg-amber-500",
-    info: "border-blue-200/80 text-blue-800 before:bg-blue-500",
-  };
-
-  return (
-    <div
-      className={cn(
-        "pointer-events-auto animate-rise relative flex min-w-[280px] max-w-md items-start gap-3 overflow-hidden rounded-[1.4rem] border bg-white/92 px-4 py-3 shadow-[0_18px_48px_rgba(18,30,49,0.14)] backdrop-blur-2xl before:absolute before:inset-y-0 before:left-0 before:w-1",
-        styles[toast.type]
-      )}
-      role="alert"
-    >
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/80 text-[10px] font-bold shadow-sm">
-        {icons[toast.type]}
-      </span>
-      <div className="flex-1">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          {toast.type}
-        </div>
-        <p className="mt-1 text-sm font-medium leading-6">{toast.message}</p>
-      </div>
-      <button
-        onClick={() => onDismiss(toast.id)}
-        className="rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-black/5"
-        aria-label="Dismiss"
-      >
-        x
-      </button>
-    </div>
   );
 }
