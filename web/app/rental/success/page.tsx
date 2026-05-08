@@ -3,24 +3,23 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useDeployStore } from "@/lib/deploy/store";
-import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, Badge } from "@/components/ui";
 import { workerFetch } from "@/lib/api/client";
 
 export default function RentalSuccessPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { t } = useLocaleStore();
+  const { t, locale } = useLocaleStore();
   const sessionId = searchParams.get("session_id");
   const [resolvedRentalId, setResolvedRentalId] = useState<string | null>(null);
   const [isRenewal, setIsRenewal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const isZh = locale === "zh";
 
   const setRentalId = useDeployStore((s) => s.setRentalId);
   const setRemainingMinutes = useDeployStore((s) => s.setRemainingMinutes);
   const setRentalStatus = useDeployStore((s) => s.setRentalStatus);
-  const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
     if (!sessionId) {
@@ -28,7 +27,6 @@ export default function RentalSuccessPage() {
       return;
     }
 
-    // Poll for the session result
     const check = async () => {
       try {
         const res = await workerFetch(`/api/rental/session/${sessionId}`);
@@ -53,47 +51,88 @@ export default function RentalSuccessPage() {
     };
 
     check();
-  }, [sessionId]);
+  }, [router, sessionId, setRemainingMinutes, setRentalId, setRentalStatus]);
 
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <div className="text-3xl animate-pulse">⏳</div>
-          <p className="mt-4 text-muted-foreground">{t("rental.loadingConfig")}</p>
-        </div>
-      </div>
+      <CenterStatus
+        eyebrow="Payments"
+        title={isZh ? "支付已确认，正在同步节点状态。" : "Payment confirmed. Syncing rental state now."}
+        body={t("rental.loadingConfig")}
+        tone="neutral"
+        pulse
+      />
     );
   }
 
   if (isRenewal) {
     return (
-      <div className="mx-auto max-w-lg space-y-6 py-12 text-center">
-        <Card className="p-6 space-y-4">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">✓</div>
-          <h2 className="text-2xl font-bold text-green-700">{t("rental.renew.success")}</h2>
-          <p className="text-muted-foreground">
-            {t("rental.paymentConfirmed")}
-          </p>
+      <CenterStatus
+        eyebrow="Renewal complete"
+        title={t("rental.renew.success")}
+        body={t("rental.paymentConfirmed")}
+        tone="success"
+        meta={resolvedRentalId ? <Badge variant="outline" className="px-3 py-1">#{resolvedRentalId.slice(0, 8)}</Badge> : null}
+        action={(
           <Button onClick={() => router.push("/")}>
             {t("nav.home")}
           </Button>
-        </Card>
-      </div>
+        )}
+      />
     );
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-6 py-12 text-center">
-      <Card className="p-6 space-y-4">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">✓</div>
-        <h2 className="text-2xl font-bold text-green-700">{t("rental.paymentConfirmed")}</h2>
-        <p className="text-muted-foreground">
-          {t("rental.creatingNode")}
-        </p>
-        <Button onClick={() => router.push("/")}>
-          {t("nav.home")}
-        </Button>
+    <CenterStatus
+      eyebrow="Payment complete"
+      title={t("rental.paymentConfirmed")}
+      body={resolvedRentalId ? `${t("rental.creatingNode")} #${resolvedRentalId.slice(0, 8)}` : t("rental.creatingNode")}
+      tone="success"
+      action={(
+        <div className="flex flex-col justify-center gap-3 sm:flex-row">
+          <Button onClick={() => router.push("/")}>{t("nav.home")}</Button>
+          <Button variant="outline" onClick={() => router.push("/payments")}>
+            {t("payment.history")}
+          </Button>
+        </div>
+      )}
+    />
+  );
+}
+
+function CenterStatus({
+  eyebrow,
+  title,
+  body,
+  tone,
+  action,
+  meta,
+  pulse = false,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  tone: "neutral" | "success";
+  action?: React.ReactNode;
+  meta?: React.ReactNode;
+  pulse?: boolean;
+}) {
+  const accent =
+    tone === "success"
+      ? "bg-green-100 text-green-700"
+      : "bg-primary/10 text-primary";
+
+  return (
+    <div className="apple-shell flex min-h-[70vh] items-center justify-center px-4">
+      <Card className="animate-rise max-w-2xl space-y-5 p-8 text-center">
+        <div className={`mx-auto grid h-16 w-16 place-items-center rounded-full text-xl font-semibold ${accent} ${pulse ? "animate-pulse" : ""}`}>
+          AX
+        </div>
+        <div className="section-eyebrow">{eyebrow}</div>
+        <h2 className="text-3xl font-semibold tracking-[-0.045em]">{title}</h2>
+        <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">{body}</p>
+        {meta ? <div className="flex justify-center">{meta}</div> : null}
+        {action}
       </Card>
     </div>
   );

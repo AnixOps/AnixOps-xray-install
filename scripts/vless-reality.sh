@@ -240,6 +240,28 @@ open_firewall() {
   fi
 }
 
+apply_safety_policy() {
+  log_info "Applying outbound abuse-port blocks..."
+  local tcp_ports="25,465,587,6881:6999,51413"
+  local udp_ports="6881:6999,51413"
+
+  if command -v iptables &>/dev/null; then
+    iptables -C OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT 2>/dev/null \
+      || iptables -A OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT
+    iptables -C OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT 2>/dev/null \
+      || iptables -A OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT
+  else
+    log_warn "iptables not found; outbound abuse-port blocks were not applied"
+  fi
+
+  if command -v ip6tables &>/dev/null; then
+    ip6tables -C OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT 2>/dev/null \
+      || ip6tables -A OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT || true
+    ip6tables -C OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT 2>/dev/null \
+      || ip6tables -A OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT || true
+  fi
+}
+
 # Start service
 start_service() {
   log_info "Starting Xray..."
@@ -264,6 +286,7 @@ main() {
   generate_config
   create_service
   open_firewall
+  apply_safety_policy
   start_service
 
   echo ""

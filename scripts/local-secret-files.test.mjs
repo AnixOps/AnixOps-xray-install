@@ -9,6 +9,7 @@ const {
   inferSmtpHostFromUser,
   parseKeyValueSecretFile,
   readLocalCredentialOverrides,
+  readUnifiedSecretEnvOverrides,
 } = require("./local-secret-files.js");
 
 describe("local secret file helpers", () => {
@@ -47,29 +48,125 @@ describe("local secret file helpers", () => {
     }
   });
 
-  it("prefers the unified local secrets bundle when present", () => {
+  it("reads provider and SMTP overrides from .local-secrets.env", () => {
     const dir = mkdtempSync(join(tmpdir(), "anixops-secrets-"));
     try {
-      writeFileSync(join(dir, ".local-secrets.env"), [
-        "VULTR_API_KEY=bundle-token",
-        "SMTP_HOST=us1.workspace.org",
-        "SMTP_PORT=465",
-        "SMTP_USER=ops@example.com",
-        "SMTP_PASS=bundle-password",
-        "SMTP_SECURE=true",
-        "SMTP_FROM=ops@example.com",
-      ].join("\n"), "utf8");
-      writeFileSync(join(dir, "apikey.txt"), "legacy-token\n", "utf8");
-      writeFileSync(join(dir, "mail.txt"), "账号=legacy@example.com\npassword=legacy-password\n", "utf8");
+      writeFileSync(
+        join(dir, ".local-secrets.env"),
+        [
+          "VULTR_API_KEY=vultr-secret-token",
+          "SMTP_USER=ops@anixops.com",
+          "SMTP_PASS=mail-app-password",
+          "SMTP_HOST=mail.anixops.com",
+          "SMTP_PORT=465",
+          "SMTP_SECURE=true",
+          "SMTP_FROM=ops@anixops.com",
+        ].join("\n"),
+        "utf8",
+      );
 
-      expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
-        VULTR_API_KEY: "bundle-token",
-        SMTP_USER: "ops@example.com",
-        SMTP_PASS: "bundle-password",
-        SMTP_HOST: "us1.workspace.org",
+      expect(readUnifiedSecretEnvOverrides(dir)).toEqual({
+        VULTR_API_KEY: "vultr-secret-token",
+        SMTP_USER: "ops@anixops.com",
+        SMTP_PASS: "mail-app-password",
+        SMTP_HOST: "mail.anixops.com",
         SMTP_PORT: "465",
         SMTP_SECURE: "true",
-        SMTP_FROM: "ops@example.com",
+        SMTP_FROM: "ops@anixops.com",
+      });
+      expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
+        VULTR_API_KEY: "vultr-secret-token",
+        SMTP_USER: "ops@anixops.com",
+        SMTP_PASS: "mail-app-password",
+        SMTP_HOST: "mail.anixops.com",
+        SMTP_PORT: "465",
+        SMTP_SECURE: "true",
+        SMTP_FROM: "ops@anixops.com",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not synthesize SMTP defaults when .local-secrets.env only contains provider fields", () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-secrets-"));
+    try {
+      writeFileSync(join(dir, ".local-secrets.env"), "VULTR_API_KEY=vultr-secret-token\n", "utf8");
+
+      expect(readUnifiedSecretEnvOverrides(dir)).toEqual({
+        VULTR_API_KEY: "vultr-secret-token",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets apikey.txt and mail.txt override .local-secrets.env", () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-secrets-"));
+    try {
+      writeFileSync(join(dir, ".local-secrets.env"), "VULTR_API_KEY=vultr-from-unified\nSMTP_USER=old@example.com\nSMTP_PASS=old-pass\n", "utf8");
+      writeFileSync(join(dir, "apikey.txt"), "vultr-from-apikey\n", "utf8");
+      writeFileSync(join(dir, "mail.txt"), "账号=new@example.com\npassword=new-pass\n", "utf8");
+
+      expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
+        VULTR_API_KEY: "vultr-from-apikey",
+        SMTP_USER: "new@example.com",
+        SMTP_PASS: "new-pass",
+        SMTP_HOST: "mail.example.com",
+        SMTP_PORT: "465",
+        SMTP_SECURE: "true",
+        SMTP_FROM: "new@example.com",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads explicit DigitalOcean credentials from apikey.txt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-secrets-"));
+    try {
+      writeFileSync(join(dir, "apikey.txt"), "DIGITALOCEAN_TOKEN=do-secret-token\n", "utf8");
+
+      expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
+        DIGITALOCEAN_TOKEN: "do-secret-token",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads explicit AWS credentials from apikey.txt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-secrets-"));
+    try {
+      writeFileSync(
+        join(dir, "apikey.txt"),
+        [
+          "AWS_ACCESS_KEY_ID=AKIATESTEXAMPLE000",
+          "AWS_SECRET_ACCESS_KEY=aws-secret-value-0123456789",
+          "AWS_REGION=ap-northeast-1",
+          "AWS_SECURITY_GROUP_ID=sg-12345678",
+        ].join("\n"),
+        "utf8",
+      );
+
+      expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
+        AWS_ACCESS_KEY_ID: "AKIATESTEXAMPLE000",
+        AWS_SECRET_ACCESS_KEY: "aws-secret-value-0123456789",
+        AWS_REGION: "ap-northeast-1",
+        AWS_SECURITY_GROUP_ID: "sg-12345678",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes a generic token to DigitalOcean when provider is declared", () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-secrets-"));
+    try {
+      writeFileSync(join(dir, "apikey.txt"), "provider=digitalocean\ntoken=do-secret-token\n", "utf8");
+
+      expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
+        DIGITALOCEAN_TOKEN: "do-secret-token",
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });

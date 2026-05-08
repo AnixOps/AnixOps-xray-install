@@ -1,66 +1,52 @@
 # AnixOps Redeem Code System
 
+Last updated: 2026-05-07
+
 ## Overview
 
-The redeem code system allows you to issue prepaid tokens to users that can be exchanged for node rental time without going through Stripe payment.
+Redeem codes now support two modes:
+
+- `duration`: a one-time code that creates a prepaid rental without Stripe.
+- `wallet`: a one-time code that credits wallet balance through `wallet_ledger`.
+
+Both modes keep one-time claim semantics with a `used_by IS NULL` guard.
 
 ## Features
 
-- **Prepaid tokens**: Generate codes like `ANIX-ABCD-EFGH` that grant specific rental durations
-- **Flexible durations**: Support custom durations (1, 6, 8, 12, 16, 24, 48, 72 hours)
-- **Expiry dates**: Optional expiration date for time-limited promotions
-- **One-time use**: Each code can only be redeemed once
-- **Audit trail**: All redemptions logged with user association
+- **Rental tokens**: Generate codes like `ANIX-ABCD-EFGH` that grant specific rental durations.
+- **Wallet credits**: Generate balance codes by setting `codeType: "wallet"` and `walletAmount`.
+- **Flexible durations**: Duration codes support 1, 6, 8, 12, 16, 24, 48, 72 hours.
+- **Expiry dates**: Optional expiration date for time-limited promotions.
+- **One-time use**: Each code can only be redeemed once.
+- **Ledger auditability**: Wallet codes write append-only `wallet_ledger` entries.
+- **Legacy compatibility**: Duration codes still create rentals directly via `/api/redeem`.
 
-## Usage
+## User Flows
 
-### 1. Generate Redeem Codes
+### Duration Code Rental
 
-Use the Node.js script to generate codes:
+Users redeem duration codes in the rental wizard:
 
-```bash
-# Set your API credentials
-export WORKER_URL="https://anixops.your-subdomain.workers.dev"
-export API_SECRET="your-api-secret-from-wrangler-secrets"
+1. Select protocol.
+2. Enter email address.
+3. Choose `Redeem Code`.
+4. Validate the code.
+5. Complete deployment.
 
-# Generate 10 codes for 8 hours each
-node scripts/generate-redeem-codes.js 10 8
+Endpoint: `POST /api/redeem`
 
-# Generate codes with expiration date
-node scripts/generate-redeem-codes.js 10 8 2026-12-31T23:59:59Z
-```
+### Wallet Code Credit
 
-For self-hosted deployments, point the same script at your API server:
+Users redeem wallet codes from wallet flows or API clients:
 
-```bash
-export WORKER_URL="http://localhost:8787"
-export API_SECRET="your-api-secret-from-env"
-node scripts/generate-redeem-codes.js 10 8
-```
+Endpoint: `POST /api/wallet/redeem`
 
-Valid durations: 1, 6, 8, 12, 16, 24, 48, 72 hours
-
-### 2. Distribute Codes
-
-Copy the generated codes and distribute to users via:
-- Email campaigns
-- Promotional events
-- Gift cards
-- Partner giveaways
-
-### 3. User Redemption
-
-Users can redeem codes in the rental wizard:
-1. Select protocol (VLESS+Reality or Hysteria2)
-2. Enter email address
-3. Choose "兑换码" / "Redeem Code" as payment method
-4. Enter the code (format: `ANIX-XXXX-XXXX`)
-5. Click "验证" / "Validate" to verify
-6. Complete the deployment
+The response includes `balanceDelta`, `codeType`, `ledgerEntryId`, and the updated source.
 
 ## API Endpoints
 
-### Validate Code (Public)
+### Validate Code
+
 ```http
 POST /api/redeem/validate
 Content-Type: application/json
@@ -71,14 +57,18 @@ Content-Type: application/json
 ```
 
 Response:
+
 ```json
 {
   "valid": true,
-  "durationHours": 8
+  "codeType": "duration",
+  "durationHours": 8,
+  "walletAmount": null
 }
 ```
 
-### Redeem Code (Authenticated)
+### Redeem Duration Code
+
 ```http
 POST /api/redeem
 Authorization: Bearer <token>
@@ -86,11 +76,27 @@ Content-Type: application/json
 
 {
   "code": "ANIX-ABCD-EFGH",
-  "protocol": "vless-reality"
+  "protocol": "vless-reality",
+  "complianceProfileId": "standard"
 }
 ```
 
-### Admin: Generate Codes
+Wallet codes are rejected by this endpoint and should use `/api/wallet/redeem`.
+
+### Redeem Wallet Code
+
+```http
+POST /api/wallet/redeem
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "code": "ANIX-WALLET-01"
+}
+```
+
+### Admin: Generate Duration Codes
+
 ```http
 POST /api/admin/redeem-codes
 X-API-Secret: <secret>
@@ -98,12 +104,29 @@ Content-Type: application/json
 
 {
   "count": 10,
+  "codeType": "duration",
   "durationHours": 8,
-  "expiresAt": "2026-12-31T23:59:59Z"  // optional
+  "expiresAt": "2026-12-31T23:59:59Z"
+}
+```
+
+### Admin: Generate Wallet Codes
+
+```http
+POST /api/admin/redeem-codes
+X-API-Secret: <secret>
+Content-Type: application/json
+
+{
+  "count": 10,
+  "codeType": "wallet",
+  "walletAmount": 25,
+  "expiresAt": "2026-12-31T23:59:59Z"
 }
 ```
 
 ### Admin: List Codes
+
 ```http
 GET /api/admin/redeem-codes
 X-API-Secret: <secret>
@@ -115,32 +138,23 @@ X-API-Secret: <secret>
 CREATE TABLE redeem_codes (
     id TEXT PRIMARY KEY,
     code TEXT UNIQUE NOT NULL,
+    code_type TEXT NOT NULL DEFAULT 'duration',
     duration_hours INTEGER NOT NULL,
+    wallet_amount REAL,
     used_by TEXT REFERENCES users(id),
-    used_at DATETIME,
-    expires_at DATETIME,
-    created_at DATETIME DEFAULT (datetime('now'))
+    used_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX idx_redeem_codes_code ON redeem_codes(code);
-CREATE INDEX idx_redeem_codes_used ON redeem_codes(used_by);
 ```
+
+Runtime startup also applies `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for `code_type` and `wallet_amount` on existing self-hosted databases.
 
 ## Security Considerations
 
-1. **API Secret Protection**: Keep `API_SECRET` secure - it grants admin access
-2. **Code Format**: Codes use base32-like alphabet (excludes ambiguous characters like 0, O, 1, I)
-3. **One-time Use**: Codes cannot be reused once redeemed
-4. **Atomic Claim**: Redemption updates the code with a `used_by IS NULL` guard to prevent concurrent double use
-5. **Validation**: Codes are validated before redemption to prevent failed transactions
-6. **Expiration**: Optional expiration dates prevent old codes from being used
-
-## Integration with Existing Payment Methods
-
-The redeem code system integrates with existing payment flows:
-
-- **Stripe**: Credit card payment (revenue)
-- **Free Trial**: One-time free rental per email (acquisition)
-- **Redeem Code**: Prepaid tokens (flexible distribution)
-
-All methods create identical rental records in the database, with `payment_method` set to `"redeem_code"` for redeemed codes.
+1. Keep `API_SECRET` secure; it grants admin access.
+2. Codes use a base32-like alphabet for generated values.
+3. One-time claims use an atomic `used_by IS NULL` update guard.
+4. Optional expiration prevents old codes from being used.
+5. Wallet credits go through `wallet_ledger` with idempotency keys.
+6. Duration redemption checks account freeze state and compliance profile before provisioning.

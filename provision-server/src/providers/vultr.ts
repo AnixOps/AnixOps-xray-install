@@ -16,7 +16,11 @@ export function createVultrProvider(apiKey: string): CloudProvider {
       const errText = await res.text();
       throw new Error(`Vultr API error: ${res.status} - ${errText}`);
     }
-    return res.json();
+    if (res.status === 204) {
+      return {};
+    }
+    const text = await res.text();
+    return text.trim() ? JSON.parse(text) : {};
   }
 
   // Register SSH key if not already present, return key ID
@@ -37,7 +41,7 @@ export function createVultrProvider(apiKey: string): CloudProvider {
   }
 
   return {
-    async createServer({ region, plan, sshKey, tag }): Promise<VPSInfo> {
+    async createServer({ region, plan, sshKey, tag, userData }): Promise<VPSInfo> {
       const body: Record<string, unknown> = {
         region,
         plan,
@@ -47,7 +51,11 @@ export function createVultrProvider(apiKey: string): CloudProvider {
 
       if (sshKey) {
         const sshKeyId = await getOrCreateSSHKeyId(sshKey);
-        body.sshkey_id = sshKeyId;
+        body.sshkey_id = [sshKeyId];
+      }
+
+      if (userData) {
+        body.user_data = Buffer.from(userData, "utf8").toString("base64");
       }
 
       const data = await request("/instances", { method: "POST", body: JSON.stringify(body) }) as Record<string, { id: string; main_ip: string; status: string }>;

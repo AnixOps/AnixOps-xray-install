@@ -14,7 +14,15 @@ const SSH_FILE = process.env.ANIXOPS_SSH_FILE
 const DEFAULT_PRIVATE_KEY_FILE = path.resolve(__dirname, "..", ".ssh", "anixops_remote_ed25519");
 const API_CONTAINER = "anixops-audit-api";
 const WEB_CONTAINER = "anixops-ui-audit";
+const SCHEDULER_CONTAINER = "anixops-scheduler-audit";
 const PROVISION_CONTAINER_REGEX = "anixops.*provision|provision.*anixops";
+const DEFAULT_REMOTE_DIR = "/opt/anixops-selfhosted";
+const JOB_SCRIPTS = {
+  billing: "scripts/billing-tick-worker.js --json",
+  "crypto-topups": "scripts/crypto-topup-worker.js --json",
+  "audit-anchor": "scripts/audit-anchor-worker.js --json",
+  "compliance-stats": "scripts/compliance-stats-worker.js --json",
+};
 
 function parseSshConfig(raw) {
   const read = (keys, fallback = "") => {
@@ -171,6 +179,7 @@ function statusCommand() {
   return [
     "set -eu",
     resolveProvisionContainerCommand(),
+    `scheduler_container=$(docker ps -a --filter name="^/${SCHEDULER_CONTAINER}$" --format "{{.Names}}" | head -n 1 || true)`,
     'printf "status_host=%s\\n" "$(hostname 2>/dev/null || echo unknown)"',
     'printf "status_date=%s\\n" "$(date -Is 2>/dev/null || date)"',
     'echo "--- containers ---"',
@@ -187,14 +196,22 @@ function statusCommand() {
     `docker inspect -f 'status_network_mode={{.HostConfig.NetworkMode}}' ${shellQuote(API_CONTAINER)} 2>/dev/null || true`,
     'echo "--- admin env ---"',
     `if docker inspect ${shellQuote(API_CONTAINER)} >/dev/null 2>&1; then`,
-    `  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} | awk -F= '$1=="ADMIN_EMAILS" {print "status_ADMIN_EMAILS="$2} $1=="PROVISION_SERVER_URL" {print "status_PROVISION_SERVER_URL="$2}'`,
+    `  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} | awk -F= '$1=="ADMIN_EMAILS" {print "status_ADMIN_EMAILS="$2} $1=="PROVISION_SERVER_URL" {print "status_PROVISION_SERVER_URL="$2} $1=="CHAIN_ENVIRONMENT" {print "status_CHAIN_ENVIRONMENT="$2} $1=="CRYPTO_ALERT_WEBHOOK_URL" {print "status_CRYPTO_ALERT_WEBHOOK=" (substr($0, index($0, "=")+1) != "" ? "configured" : "missing")} $1=="AUDIT_ANCHOR_ALERT_WEBHOOK_URL" {print "status_AUDIT_ANCHOR_ALERT_WEBHOOK=" (substr($0, index($0, "=")+1) != "" ? "configured" : "missing")}'`,
     "fi",
     'echo "--- provision container ---"',
     'if [ -n "$provision_container" ]; then',
     '  printf "status_provision_container=%s\\n" "$provision_container"',
     '  docker ps --filter name="^/${provision_container}$" --format "{{.Names}} | {{.Status}} | {{.Ports}}"',
+    '  docker inspect -f \'{{range .Config.Env}}{{println .}}{{end}}\' "$provision_container" | awk -F= \'$1=="CLOUD_PROVIDER" {print "status_CLOUD_PROVIDER="$2} $1=="VPS_REGION" {print "status_VPS_REGION="$2} $1=="VPS_PLAN" {print "status_VPS_PLAN="$2} $1=="AWS_REGION" {print "status_AWS_REGION="$2}\'',
     "else",
     '  echo "status_provision_container=missing"',
+    "fi",
+    'echo "--- scheduler container ---"',
+    'if [ -n "$scheduler_container" ]; then',
+    '  printf "status_scheduler_container=%s\\n" "$scheduler_container"',
+    '  docker ps --filter name="^/${scheduler_container}$" --format "{{.Names}} | {{.Status}}"',
+    "else",
+    '  echo "status_scheduler_container=missing"',
     "fi",
   ].join("\n");
 }
@@ -205,6 +222,7 @@ function healthCommand(strict = false) {
     `strict=${strict ? "true" : "false"}`,
     "health_failed=0",
     resolveProvisionContainerCommand(),
+    `scheduler_container=$(docker ps -a --filter name="^/${SCHEDULER_CONTAINER}$" --format "{{.Names}}" | head -n 1 || true)`,
     'echo "--- health ---"',
     `provision_url=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} 2>/dev/null | awk -F= '$1=="PROVISION_SERVER_URL" {print $2}' || true)`,
     `api_network_mode=$(docker inspect -f '{{.HostConfig.NetworkMode}}' ${shellQuote(API_CONTAINER)} 2>/dev/null || echo unknown)`,
@@ -212,6 +230,15 @@ function healthCommand(strict = false) {
     '  echo "provision_container_present=true"',
     "else",
     '  echo "provision_container_present=false"',
+    "fi",
+    'if [ -n "$scheduler_container" ]; then',
+    '  echo "scheduler_container_present=true"',
+    '  scheduler_health=$(docker inspect -f \'{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\' "$scheduler_container" 2>/dev/null || echo unknown)',
+    '  echo "scheduler_health=$scheduler_health"',
+    '  [ "$scheduler_health" = "healthy" ] || health_failed=1',
+    "else",
+    '  echo "scheduler_container_present=false"',
+    "  health_failed=1",
     "fi",
     'echo "api_network_mode=$api_network_mode"',
     "if command -v curl >/dev/null 2>&1; then",
@@ -271,15 +298,89 @@ function logsCommand(tail) {
     "set -eu",
     `tail=${tail}`,
     resolveProvisionContainerCommand(),
+    `scheduler_container=$(docker ps -a --filter name="^/${SCHEDULER_CONTAINER}$" --format "{{.Names}}" | head -n 1 || true)`,
     `echo "--- ${API_CONTAINER} logs ---"`,
     `docker logs --tail "$tail" ${shellQuote(API_CONTAINER)} 2>&1 || true`,
     `echo "--- ${WEB_CONTAINER} logs ---"`,
     `docker logs --tail "$tail" ${shellQuote(WEB_CONTAINER)} 2>&1 || true`,
+    `echo "--- ${SCHEDULER_CONTAINER} logs ---"`,
+    'if [ -n "$scheduler_container" ]; then',
+    '  docker logs --tail "$tail" "$scheduler_container" 2>&1 || true',
+    "else",
+    '  echo "scheduler container missing"',
+    "fi",
     'echo "--- provision container logs ---"',
     'if [ -n "$provision_container" ]; then',
     '  docker logs --tail "$tail" "$provision_container" 2>&1 || true',
     "else",
     '  echo "provision container missing"',
+    "fi",
+  ].join("\n");
+}
+
+function psCommand() {
+  return [
+    "set -eu",
+    'docker ps -a --filter name=anixops --format "{{.Names}} | {{.Image}} | {{.Status}} | {{.Ports}}"',
+  ].join("\n");
+}
+
+function smokeCommand() {
+  return [
+    "set -eu",
+    'check_http() {',
+    '  label="$1"',
+    '  url="$2"',
+    '  expected="$3"',
+    '  code=$(curl -sS -o /tmp/anixops-smoke.out -w "%{http_code}" --max-time 10 "$url" || true)',
+    '  echo "$label=$code"',
+    '  [ "$code" = "$expected" ]',
+    '}',
+    'check_http console_http http://127.0.0.1:30000/console 200',
+    'check_http private_console_http http://10.100.0.130:30000/console 200',
+    'check_http api_console_unauth http://127.0.0.1:8787/api/console/overview 401',
+    'check_http web_console_unauth http://127.0.0.1:30000/api/console/overview 401',
+    'check_http compliance_profiles_http http://127.0.0.1:8787/api/compliance/profiles 200',
+    `api_secret=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} | awk -F= '$1=="API_SECRET" {print substr($0, index($0, "=")+1)}' | tail -n 1)`,
+    'if [ -z "$api_secret" ]; then',
+    '  echo "api_secret=missing"',
+    '  exit 1',
+    "fi",
+    'billing_code=$(curl -sS -o /tmp/anixops-smoke-billing.out -w "%{http_code}" --max-time 15 -X POST -H "X-API-Secret: $api_secret" http://127.0.0.1:8787/internal/billing/tick || true)',
+    'echo "billing_tick_http=$billing_code"',
+    '[ "$billing_code" = "200" ] || exit 1',
+    'crypto_scan_code=$(curl -sS -o /tmp/anixops-smoke-crypto-scan.out -w "%{http_code}" --max-time 20 -X POST -H "Content-Type: application/json" -H "X-API-Secret: $api_secret" -d "{\"limit\":1,\"lookbackBlocks\":100}" http://127.0.0.1:8787/internal/crypto-topups/scan || true)',
+    'echo "crypto_topup_scan_http=$crypto_scan_code"',
+    '[ "$crypto_scan_code" = "200" ] || exit 1',
+    'compliance_sync_code=$(curl -sS -o /tmp/anixops-smoke-compliance.out -w "%{http_code}" --max-time 30 -X POST -H "Content-Type: application/json" -H "X-API-Secret: $api_secret" -d "{\"limit\":1}" http://127.0.0.1:8787/internal/compliance/stats/sync || true)',
+    'echo "compliance_sync_http=$compliance_sync_code"',
+    '[ "$compliance_sync_code" = "200" ] || exit 1',
+    'smoke_email="smoke.$(date +%s)@example.com"',
+    'auth_payload=$(printf \'{"email":"%s"}\' "$smoke_email")',
+    'auth_body=$(curl -sS --max-time 10 -X POST http://127.0.0.1:8787/api/auth/register -H "Content-Type: application/json" -d "$auth_payload")',
+    'token=$(printf "%s" "$auth_body" | sed -n \'s/.*"token":"\\([^"]*\\)".*/\\1/p\')',
+    'if [ -z "$token" ]; then',
+    '  echo "smoke_auth_register=failed"',
+    '  printf "%s\\n" "$auth_body"',
+    '  exit 1',
+    "fi",
+    'echo "smoke_auth_register=ok"',
+    'for path in overview nodes wallet audit referrals; do',
+    '  code=$(curl -sS -o /tmp/anixops-smoke-auth.out -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $token" "http://127.0.0.1:8787/api/console/$path" || true)',
+    '  echo "auth_console_${path}=$code"',
+    '  [ "$code" = "200" ] || exit 1',
+    "done",
+    'wallet_body=$(curl -sS --max-time 10 -H "Authorization: Bearer $token" http://127.0.0.1:8787/api/wallet)',
+    'chain_env=$(printf "%s" "$wallet_body" | sed -n \'s/.*"environment":"\\([^"]*\\)".*/\\1/p\' | head -n 1)',
+    'chain_allowlisted=$(printf "%s" "$wallet_body" | sed -n \'s/.*"allowlisted":\\(true\\|false\\).*/\\1/p\' | head -n 1)',
+    'echo "chain_environment=${chain_env:-unknown}"',
+    'echo "chain_allowlisted=${chain_allowlisted:-unknown}"',
+    'crypto_code=$(curl -sS -o /tmp/anixops-smoke-crypto.out -w "%{http_code}" --max-time 10 -X POST -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d "{\"amount\":10,\"asset\":\"USDT\",\"network\":\"POLYGON\"}" http://127.0.0.1:8787/api/wallet/crypto-topups || true)',
+    'echo "crypto_topup_http=$crypto_code"',
+    'if [ "${chain_env:-}" = "testnet" ] && [ "${chain_allowlisted:-}" = "false" ]; then',
+    '  [ "$crypto_code" = "403" ] || exit 1',
+    "else",
+    '  [ "$crypto_code" = "200" ] || exit 1',
     "fi",
   ].join("\n");
 }
@@ -304,15 +405,17 @@ function restartCommand(target) {
 
   const containers =
     target === "all"
-      ? [API_CONTAINER, WEB_CONTAINER]
+      ? [API_CONTAINER, WEB_CONTAINER, SCHEDULER_CONTAINER]
       : target === "api"
         ? [API_CONTAINER]
         : target === "web"
           ? [WEB_CONTAINER]
+          : target === "scheduler"
+            ? [SCHEDULER_CONTAINER]
           : null;
 
   if (!containers) {
-    throw new Error("Restart target must be api, web, provision, or all.");
+    throw new Error("Restart target must be api, web, scheduler, provision, or all.");
   }
 
   return [
@@ -336,6 +439,33 @@ function restartCommand(target) {
     healthCommand(),
     'echo "--- running containers ---"',
     'docker ps --filter name=anixops --format "{{.Names}} {{.Status}} {{.Ports}}"',
+  ].join("\n");
+}
+
+function deployCommand(remoteDir = DEFAULT_REMOTE_DIR) {
+  const normalizedRemoteDir = String(remoteDir || "").trim() || DEFAULT_REMOTE_DIR;
+  return [
+    "set -eu",
+    `cd ${shellQuote(normalizedRemoteDir)}`,
+    "docker compose --env-file .env.selfhosted -f docker-compose.selfhosted.yml up -d --build --remove-orphans",
+    "sleep 5",
+    healthCommand(true),
+    'echo "--- compose ps ---"',
+    "docker compose --env-file .env.selfhosted -f docker-compose.selfhosted.yml ps",
+  ].join("\n");
+}
+
+function jobCommand(jobName, remoteDir = DEFAULT_REMOTE_DIR) {
+  const normalizedJob = String(jobName || "").trim();
+  const script = JOB_SCRIPTS[normalizedJob];
+  if (!script) {
+    throw new Error("Job name must be billing, crypto-topups, audit-anchor, or compliance-stats.");
+  }
+  const normalizedRemoteDir = String(remoteDir || "").trim() || DEFAULT_REMOTE_DIR;
+  return [
+    "set -eu",
+    `cd ${shellQuote(normalizedRemoteDir)}`,
+    `node ${script}`,
   ].join("\n");
 }
 
@@ -447,10 +577,14 @@ function setAdminCommand(email) {
 
 function usage() {
   console.log(`Usage:
+  node scripts/remote-ops.js ps
   node scripts/remote-ops.js status
   node scripts/remote-ops.js health [--strict]
+  node scripts/remote-ops.js smoke
   node scripts/remote-ops.js logs [tail]
-  node scripts/remote-ops.js restart api|web|provision|all
+  node scripts/remote-ops.js deploy [remote-dir]
+  node scripts/remote-ops.js job billing|crypto-topups|audit-anchor|compliance-stats [remote-dir]
+  node scripts/remote-ops.js restart api|web|scheduler|provision|all
   node scripts/remote-ops.js admin check <email>
   node scripts/remote-ops.js admin set <email>
 
@@ -470,12 +604,28 @@ async function main() {
     await runRemote(statusCommand());
     return;
   }
+  if (command === "ps") {
+    await runRemote(psCommand());
+    return;
+  }
   if (command === "health") {
     await runRemote(healthCommand(subcommand === "--strict"));
     return;
   }
+  if (command === "smoke") {
+    await runRemote(smokeCommand());
+    return;
+  }
   if (command === "logs") {
     await runRemote(logsCommand(validateTail(subcommand)));
+    return;
+  }
+  if (command === "deploy") {
+    await runRemote(deployCommand(subcommand));
+    return;
+  }
+  if (command === "job") {
+    await runRemote(jobCommand(subcommand, value));
     return;
   }
   if (command === "restart") {
@@ -503,13 +653,19 @@ if (require.main === module) {
 }
 
 module.exports = {
+  deployCommand,
   diagnoseProvisionUrl,
   isLoopbackUrl,
   healthCommand,
+  jobCommand,
   loadSshConfig,
+  logsCommand,
   parseSshConfig,
+  psCommand,
+  restartCommand,
   runRemote,
   shellQuote,
+  smokeCommand,
   statusCommand,
   validateEmail,
   validateTail,

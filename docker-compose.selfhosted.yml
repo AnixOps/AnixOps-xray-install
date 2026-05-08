@@ -4,6 +4,7 @@
 services:
   # Main API server (self-hosted, no Cloudflare)
   api:
+    container_name: anixops-audit-api
     build:
       context: .
       dockerfile: server/Dockerfile
@@ -12,13 +13,29 @@ services:
     environment:
       - PORT=8787
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://anixops:anixops@postgres:5432/anixops
+      - DATABASE_URL=postgresql://anixops:${POSTGRES_PASSWORD}@postgres:5432/anixops
       - REDIS_URL=redis://:${REDIS_PASSWORD:-anixops-redis-change-me}@redis:6379
-      - PROVISION_SERVER_URL=http://provision:3000
+      - PROVISION_SERVER_URL=http://provision:3001
       - PROVISION_SERVER_TOKEN=${PROVISION_SERVER_TOKEN}
       - API_SECRET=${API_SECRET}
       - ADMIN_EMAILS=${ADMIN_EMAILS}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:30000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - CHAIN_ENVIRONMENT=${CHAIN_ENVIRONMENT}
+      - CHAIN_TESTNET_WHITELIST_EMAILS=${CHAIN_TESTNET_WHITELIST_EMAILS}
+      - CRYPTO_TOPUP_CHAIN=${CRYPTO_TOPUP_CHAIN}
+      - CRYPTO_TOPUP_ASSET=${CRYPTO_TOPUP_ASSET}
+      - CRYPTO_TOPUP_CONFIRMATIONS_REQUIRED=${CRYPTO_TOPUP_CONFIRMATIONS_REQUIRED}
+      - CRYPTO_TOPUP_RPC_URL=${CRYPTO_TOPUP_RPC_URL}
+      - CRYPTO_TOPUP_SIGNER_PRIVATE_KEY=${CRYPTO_TOPUP_SIGNER_PRIVATE_KEY}
+      - CRYPTO_TOPUP_RECEIVER_ADDRESS=${CRYPTO_TOPUP_RECEIVER_ADDRESS}
+      - CRYPTO_TOPUP_TOKEN_ADDRESS=${CRYPTO_TOPUP_TOKEN_ADDRESS}
+      - CRYPTO_TOPUP_TOKEN_DECIMALS=${CRYPTO_TOPUP_TOKEN_DECIMALS}
+      - AUDIT_ANCHOR_CHAIN=${AUDIT_ANCHOR_CHAIN}
+      - AUDIT_ANCHOR_RPC_URL=${AUDIT_ANCHOR_RPC_URL}
+      - AUDIT_ANCHOR_SIGNER_PRIVATE_KEY=${AUDIT_ANCHOR_SIGNER_PRIVATE_KEY}
+      - AUDIT_ANCHOR_TARGET_ADDRESS=${AUDIT_ANCHOR_TARGET_ADDRESS}
+      - AUDIT_ANCHOR_MIN_NATIVE_BALANCE=${AUDIT_ANCHOR_MIN_NATIVE_BALANCE}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
       - NOTIFICATION_WEBHOOK_URL=${NOTIFICATION_WEBHOOK_URL}
@@ -42,40 +59,45 @@ services:
 
   # Provision server (VPS creation + SSH deployment)
   provision:
+    container_name: anixops-provision-audit
     build:
       context: .
       dockerfile: provision-server/Dockerfile
     environment:
-      - PORT=3000
+      - PORT=3001
       - HOST=0.0.0.0
       - LOG_LEVEL=info
+      - CLOUD_PROVIDER=${CLOUD_PROVIDER}
+      - VPS_REGION=${VPS_REGION}
+      - VPS_PLAN=${VPS_PLAN}
       - VULTR_API_KEY=${VULTR_API_KEY}
+      - DIGITALOCEAN_TOKEN=${DIGITALOCEAN_TOKEN}
       - DO_API_TOKEN=${DO_API_TOKEN}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
       - AWS_SECURITY_GROUP_ID=${AWS_SECURITY_GROUP_ID}
       - SERVER_TOKEN=${PROVISION_SERVER_TOKEN}
     volumes:
       - provision-ssh:/app/.ssh
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # PostgreSQL database (replaces D1)
   postgres:
+    container_name: anixops-audit-postgres
     image: postgres:16-alpine
     environment:
       - POSTGRES_USER=anixops
-      - POSTGRES_PASSWORD=anixops
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=anixops
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./server/src/db/migrations:/docker-entrypoint-initdb.d
-    ports:
-      - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U anixops"]
@@ -85,14 +107,13 @@ services:
 
   # Redis (replaces KV + Queue)
   redis:
+    container_name: anixops-audit-redis
     image: redis:7-alpine
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-anixops-redis-change-me}
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-anixops-redis-change-me}
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:-anixops-redis-change-me}\" ping"]
@@ -102,19 +123,65 @@ services:
 
   # Next.js frontend
   web:
+    container_name: anixops-ui-audit
     build:
       context: .
       dockerfile: Dockerfile.web
       args:
-        NEXT_PUBLIC_WORKER_URL: ${NEXT_PUBLIC_WORKER_URL:-http://localhost:8787}
+        NEXT_PUBLIC_WORKER_URL: ${NEXT_PUBLIC_WORKER_URL:-}
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-30000}:30000"
     environment:
       - HOSTNAME=0.0.0.0
-      - NEXT_PUBLIC_WORKER_URL=${NEXT_PUBLIC_WORKER_URL:-http://localhost:8787}
+      - API_URL=http://api:8787
+      - NEXT_PUBLIC_WORKER_URL=${NEXT_PUBLIC_WORKER_URL:-}
     depends_on:
       - api
     restart: unless-stopped
+
+  # Cron-style internal workers for billing, topups, audit anchoring, and compliance stats
+  scheduler:
+    container_name: anixops-scheduler-audit
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    environment:
+      - ANIXOPS_API_URL=http://api:8787
+      - API_SECRET=${API_SECRET}
+      - CHAIN_ENVIRONMENT=${CHAIN_ENVIRONMENT}
+      - CHAIN_TESTNET_WHITELIST_EMAILS=${CHAIN_TESTNET_WHITELIST_EMAILS}
+      - CRYPTO_TOPUP_CHAIN=${CRYPTO_TOPUP_CHAIN}
+      - CRYPTO_TOPUP_ASSET=${CRYPTO_TOPUP_ASSET}
+      - CRYPTO_TOPUP_CONFIRMATIONS_REQUIRED=${CRYPTO_TOPUP_CONFIRMATIONS_REQUIRED}
+      - CRYPTO_TOPUP_RPC_URL=${CRYPTO_TOPUP_RPC_URL}
+      - CRYPTO_TOPUP_SIGNER_PRIVATE_KEY=${CRYPTO_TOPUP_SIGNER_PRIVATE_KEY}
+      - CRYPTO_TOPUP_RECEIVER_ADDRESS=${CRYPTO_TOPUP_RECEIVER_ADDRESS}
+      - CRYPTO_TOPUP_TOKEN_ADDRESS=${CRYPTO_TOPUP_TOKEN_ADDRESS}
+      - CRYPTO_TOPUP_TOKEN_DECIMALS=${CRYPTO_TOPUP_TOKEN_DECIMALS}
+      - CRYPTO_ALERT_WEBHOOK_URL=${CRYPTO_ALERT_WEBHOOK_URL}
+      - AUDIT_ANCHOR_CHAIN=${AUDIT_ANCHOR_CHAIN}
+      - AUDIT_ANCHOR_RPC_URL=${AUDIT_ANCHOR_RPC_URL}
+      - AUDIT_ANCHOR_SIGNER_PRIVATE_KEY=${AUDIT_ANCHOR_SIGNER_PRIVATE_KEY}
+      - AUDIT_ANCHOR_TARGET_ADDRESS=${AUDIT_ANCHOR_TARGET_ADDRESS}
+      - AUDIT_ANCHOR_MIN_NATIVE_BALANCE=${AUDIT_ANCHOR_MIN_NATIVE_BALANCE}
+      - AUDIT_ANCHOR_ALERT_WEBHOOK_URL=${AUDIT_ANCHOR_ALERT_WEBHOOK_URL}
+      - BILLING_TICK_CRON=${BILLING_TICK_CRON:-*/5 * * * *}
+      - CRYPTO_TOPUP_CRON=${CRYPTO_TOPUP_CRON:-*/2 * * * *}
+      - AUDIT_ANCHOR_CRON=${AUDIT_ANCHOR_CRON:-17 * * * *}
+      - COMPLIANCE_STATS_CRON=${COMPLIANCE_STATS_CRON:-*/15 * * * *}
+      - SCHEDULER_ENABLE_BILLING_TICK=${SCHEDULER_ENABLE_BILLING_TICK:-true}
+      - SCHEDULER_ENABLE_CRYPTO_TOPUPS=${SCHEDULER_ENABLE_CRYPTO_TOPUPS:-auto}
+      - SCHEDULER_ENABLE_AUDIT_ANCHOR=${SCHEDULER_ENABLE_AUDIT_ANCHOR:-auto}
+      - SCHEDULER_ENABLE_COMPLIANCE_STATS=${SCHEDULER_ENABLE_COMPLIANCE_STATS:-true}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "crontab -l >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   postgres_data:

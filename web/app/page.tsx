@@ -9,7 +9,7 @@ import type { AppMode } from "@/lib/deploy/types";
 import { SelfHostedWizard } from "@/components/self-hosted/SelfHostedWizard";
 import { RentalWizard } from "@/components/rental/RentalWizard";
 import { RentalDashboard } from "@/components/rental/RentalDashboard";
-import { Button, Card, Badge } from "@/components/ui";
+import { Button, Card, Badge, Input } from "@/components/ui";
 import versions from "@/../versions.json";
 
 export default function Home() {
@@ -36,11 +36,19 @@ export default function Home() {
       expires_at: new Date(Date.now() + remainingMinutes * 60000).toISOString(),
       remainingMinutes,
     };
-    return <AppLayout><RentalDashboard token={token || ""} initialRental={initialRental} /></AppLayout>;
+    return (
+      <AppLayout>
+        <RentalDashboard token={token || ""} initialRental={initialRental} />
+      </AppLayout>
+    );
   }
 
   if (mode === "rental") {
-    return <AppLayout><RentalWizard /></AppLayout>;
+    return (
+      <AppLayout>
+        <RentalWizard />
+      </AppLayout>
+    );
   }
 
   return (
@@ -51,7 +59,8 @@ export default function Home() {
 }
 
 function SelfHostedAuthGate() {
-  const { t } = useLocaleStore();
+  const { t, locale } = useLocaleStore();
+  const isZh = locale === "zh";
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -67,9 +76,9 @@ function SelfHostedAuthGate() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res);
       if (data.error) {
-        setError(data.error);
+        setError(formatAuthError(data, isZh));
       } else {
         setMessage(t("auth.magicLink.sent"));
       }
@@ -80,77 +89,493 @@ function SelfHostedAuthGate() {
     }
   };
 
+  const highlights = isZh
+    ? [
+        "只在需要时开启授权，部署路径更干净。",
+        "邮件登录避免在浏览器侧保存额外管理密码。",
+        "登录后直接进入自托管流程，不做无意义跳转。",
+      ]
+    : [
+        "Authorize only when you actually need deployment access.",
+        "Email sign-in avoids storing another admin password in the browser.",
+        "Once verified, you drop directly into the self-hosted flow.",
+      ];
+
   return (
-    <Card className="p-6 space-y-4">
-      <h2 className="text-lg font-semibold">{t("auth.magicLink.title")}</h2>
-      <p className="text-sm text-muted-foreground">{t("auth.magicLink.desc")}</p>
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder={t("rental.emailPlaceholder")}
-        className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-      />
-      {message && <p className="text-sm text-green-600">{message}</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="flex justify-end">
-        <Button disabled={!email || loading} onClick={sendLink}>
-          {loading ? t("common.processing") : t("auth.magicLink.send")}
-        </Button>
-      </div>
-    </Card>
+    <div className="grid gap-5 lg:grid-cols-[0.88fr_1.12fr]">
+      <Card className="relative overflow-hidden border-white/60 bg-slate-950 p-6 text-white shadow-[0_30px_80px_rgba(15,23,42,0.22)] md:p-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(76,146,255,0.36),transparent_30%),radial-gradient(circle_at_80%_80%,rgba(255,180,120,0.18),transparent_34%)]" />
+        <div className="relative space-y-6">
+          <div className="space-y-3">
+            <div className="section-eyebrow text-white/55">
+              {isZh ? "Private access" : "Private access"}
+            </div>
+            <h2 className="max-w-md text-3xl font-semibold tracking-[-0.05em] md:text-4xl">
+              {isZh ? "先确认身份，再进入自托管部署。" : "Authorize first, then move straight into deployment."}
+            </h2>
+            <p className="max-w-lg text-sm leading-7 text-white/72 md:text-base">
+              {isZh
+                ? "AnixOps 把登录压缩成一个动作，只在真正需要写入服务器或云账号之前进行授权。"
+                : "AnixOps compresses access into a single step and only asks for it right before you need to touch servers or cloud credentials."}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {highlights.map((item) => (
+              <div
+                key={item}
+                className="rounded-[1.4rem] border border-white/12 bg-white/10 px-4 py-4 text-sm leading-6 text-white/82 backdrop-blur-xl"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-[1.6rem] border border-white/12 bg-white/10 p-4 backdrop-blur-xl">
+            <div className="text-xs uppercase tracking-[0.28em] text-white/42">
+              {isZh ? "Access route" : "Access route"}
+            </div>
+            <div className="mt-3 flex items-center gap-3 text-sm text-white/74">
+              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-950">
+                Mail
+              </span>
+              <span>{isZh ? "Magic link 授权后继续" : "Continue with a magic link and no extra password"}</span>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-6 p-6 md:p-8">
+        <div className="space-y-2">
+          <div className="section-eyebrow">{isZh ? "Secure sign-in" : "Secure sign-in"}</div>
+          <h2 className="text-3xl font-semibold tracking-[-0.045em]">{t("auth.magicLink.title")}</h2>
+          <p className="max-w-xl text-sm leading-7 text-muted-foreground md:text-base">
+            {t("auth.magicLink.desc")}
+          </p>
+        </div>
+
+        <div className="rounded-[1.75rem] border border-black/5 bg-white/80 p-4 shadow-inner shadow-black/[0.03] md:p-5">
+          <div className="mb-3 text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+            {isZh ? "Work email" : "Work email"}
+          </div>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder={t("rental.emailPlaceholder")}
+            className="h-12 rounded-[1.15rem]"
+          />
+        </div>
+
+        {message && (
+          <div className="rounded-[1.35rem] border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {message}
+          </div>
+        )}
+        {error && (
+          <div className="rounded-[1.35rem] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3 border-t border-black/5 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-md text-xs leading-6 text-muted-foreground">
+            {isZh
+              ? "授权邮件会发送到你填写的地址。完成验证后，部署凭据只在当前会话中使用。"
+              : "The sign-in link is sent to the address above. Once verified, deployment credentials are used only in the current session."}
+          </p>
+          <Button disabled={!email || loading} onClick={sendLink} className="h-12 px-6">
+            {loading ? t("common.processing") : t("auth.magicLink.send")}
+          </Button>
+        </div>
+      </Card>
+    </div>
   );
 }
 
+async function readJsonResponse(res: Response) {
+  const text = await res.text();
+  if (!text.trim()) {
+    return { error: `Empty response from server (${res.status})` };
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text || `Invalid response from server (${res.status})` };
+  }
+}
+
+function formatAuthError(data: { error?: string; code?: string }, isZh: boolean) {
+  if (data.code === "AUTH_EMAIL_NOT_CONFIGURED") {
+    return isZh
+      ? "登录邮件服务尚未配置。请先在服务器环境中配置 SMTP_HOST、SMTP_USER 和 SMTP_PASS。"
+      : "Email sign-in is not configured yet. Configure SMTP_HOST, SMTP_USER, and SMTP_PASS on the server.";
+  }
+  if (data.code === "AUTH_EMAIL_DELIVERY_FAILED") {
+    return isZh
+      ? "登录邮件暂时发送失败。请稍后重试，或检查 SMTP 服务状态。"
+      : "The sign-in email could not be sent. Try again later or check the SMTP service.";
+  }
+  return data.error || (isZh ? "登录请求失败。" : "Sign-in request failed.");
+}
+
 function ModeSelection({ onSelect }: { onSelect: (mode: AppMode) => void }) {
-  const { t } = useLocaleStore();
+  const { t, locale } = useLocaleStore();
+  const isZh = locale === "zh";
+
+  const heroTitle = isZh
+    ? "部署私有节点，也可以像一台一体化产品那样安静、明确、可控。"
+    : "Private node deployment, delivered with the calm precision of a first-party product.";
+  const heroBody = isZh
+    ? "自托管适合长期掌控基础设施，按租适合立刻获得独享节点。AnixOps 把部署、付款、清理与状态反馈收进一个克制但完整的体验里。"
+    : "Own the infrastructure when you need long-term control, or rent an exclusive node when speed matters. AnixOps keeps setup, payment, cleanup, and runtime state inside one restrained product surface.";
+
+  const principles = isZh
+    ? [
+        {
+          title: "少一点输入",
+          body: "默认优先高确定性的选项，让你只在真正关键的位置做判断。",
+        },
+        {
+          title: "多一点反馈",
+          body: "步骤、状态和风险都被前置说明，避免在部署后再解释系统发生了什么。",
+        },
+        {
+          title: "明确结束条件",
+          body: "到期、销毁、自动清理和订阅导出都有收口，不留下悬空状态。",
+        },
+      ]
+    : [
+        {
+          title: "Less input",
+          body: "Default to the highest-confidence choices and ask for judgment only where it matters.",
+        },
+        {
+          title: "More feedback",
+          body: "Steps, risk, and runtime state are explained up front instead of after deployment.",
+        },
+        {
+          title: "Explicit endings",
+          body: "Expiry, cleanup, destroy, and export paths close cleanly without dangling state.",
+        },
+      ];
+
+  const outcomeCards = isZh
+    ? [
+        {
+          title: "独享连接",
+          body: "无共享 IP，无额外租户噪音，配置交付直接面向客户端。",
+        },
+        {
+          title: "部署节奏可预期",
+          body: "购买、配置、运行、续费、销毁都按一个连续模型组织。",
+        },
+        {
+          title: "运营面仍然清晰",
+          body: "后台、支付、兑换码与审计信息都沿用同一套视觉语言。",
+        },
+      ]
+    : [
+        {
+          title: "Exclusive connectivity",
+          body: "No shared IP pool, no extra tenant noise, and client-ready output by default.",
+        },
+        {
+          title: "Predictable delivery",
+          body: "Purchase, deploy, operate, renew, and destroy all follow one continuous model.",
+        },
+        {
+          title: "Operational clarity",
+          body: "Admin, payments, redeem codes, and audit data live under the same design language.",
+        },
+      ];
+
+  const sharedPills = isZh
+    ? ["即时配置", "自动清理", "独享 IP", "完整状态反馈"]
+    : ["Instant config", "Auto cleanup", "Exclusive IP", "Full runtime feedback"];
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold tracking-tight">AnixOps</h1>
-        <p className="mt-2 text-muted-foreground">{t("app.subtitle")}</p>
-      </div>
+    <div className="space-y-6 md:space-y-8">
+      <section className="hero-card animate-rise overflow-hidden">
+        <div className="grid min-w-0 gap-8 lg:grid-cols-[1.06fr_0.94fr] lg:items-center">
+          <div className="min-w-0 space-y-7">
+            <div className="section-eyebrow">
+              {isZh ? "Private node orchestration" : "Private node orchestration"}
+            </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-4">
+              <h1 className="gradient-title max-w-5xl text-[2.9rem] font-semibold leading-[1.02] tracking-[-0.065em] sm:text-6xl md:text-7xl">
+                {heroTitle}
+              </h1>
+              <p className="max-w-2xl text-base leading-8 text-muted-foreground md:text-lg">
+                {heroBody}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button size="lg" onClick={() => onSelect("rental")} className="h-12 px-8">
+                {isZh ? "立即按租" : "Start rental"}
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => onSelect("self-hosted")}
+                className="h-12 px-8"
+              >
+                {isZh ? "进入自托管" : "Self-host with control"}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              {sharedPills.map((item) => (
+                <div key={item} className="metric-pill justify-center text-center">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <HeroPreview />
+        </div>
+      </section>
+
+      <section className="animate-rise-delay-1 grid gap-4 lg:grid-cols-2">
         <ModeCard
           mode="self-hosted"
-          icon="🔧"
+          eyebrow={isZh ? "Own the stack" : "Own the stack"}
           title={t("mode.selfhosted")}
           description={t("mode.selfhosted.desc")}
           onSelect={onSelect}
           badge={t("mode.selfhosted.badge")}
+          details={[
+            t("mode.compare.cost.detail"),
+            t("mode.compare.privacy.detail"),
+            isZh ? "适合长期维护、可持续升级与运维归档。" : "Best when you want long-lived infra, repeatable upgrades, and full ops ownership.",
+          ]}
+          cta={isZh ? "继续自托管" : "Continue to self-host"}
         />
         <ModeCard
           mode="rental"
-          icon="⚡"
+          eyebrow={isZh ? "Need it now" : "Need it now"}
           title={t("mode.rental")}
           description={t("mode.rental.desc")}
           onSelect={onSelect}
           badge={t("mode.rental.badge")}
+          details={[
+            t("mode.compare.tech.detail"),
+            t("mode.compare.exclusive.detail"),
+            isZh ? "适合立刻交付、临时使用或快速验证线路。" : "Best when you need immediate delivery, temporary use, or fast route validation.",
+          ]}
+          cta={isZh ? "继续按租" : "Continue to rental"}
         />
-      </div>
+      </section>
 
-      <div className="rounded-lg border border-border/40 bg-muted/30 p-4 text-sm">
-        <h3 className="mb-2 font-semibold">{t("mode.compare.title")}</h3>
-        <div className="space-y-2 text-muted-foreground">
-          <div className="flex justify-between">
-            <span>{t("mode.compare.tech")}</span>
-            <span>{t("mode.compare.tech.detail")}</span>
+      <section className="animate-rise-delay-2 grid gap-4 lg:grid-cols-[0.86fr_1.14fr]">
+        <Card className="space-y-5 p-6 md:p-7">
+          <div>
+            <div className="section-eyebrow">{isZh ? "Design principles" : "Design principles"}</div>
+            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">
+              {isZh ? "把复杂路径压成可判断的步骤。" : "Compress complex paths into steps you can judge at a glance."}
+            </h2>
           </div>
-          <div className="flex justify-between">
-            <span>{t("mode.compare.cost")}</span>
-            <span>{t("mode.compare.cost.detail")}</span>
+
+          <div className="space-y-3">
+            {principles.map((item) => (
+              <div key={item.title} className="rounded-[1.6rem] border border-black/5 bg-white/75 p-5">
+                <div className="text-lg font-semibold tracking-[-0.03em]">{item.title}</div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
+              </div>
+            ))}
           </div>
-          <div className="flex justify-between">
-            <span>{t("mode.compare.exclusive")}</span>
-            <span>{t("mode.compare.exclusive.detail")}</span>
+        </Card>
+
+        <Card className="space-y-5 p-6 md:p-7">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="section-eyebrow">{t("mode.compare.title")}</div>
+              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">
+                {isZh ? "从入口到交付，始终保持同一套节奏。" : "One cadence from entry to delivery."}
+              </h2>
+            </div>
+            <Badge variant="outline" className="self-start px-3 py-1 md:self-auto">
+              v{versions.frontend}
+            </Badge>
           </div>
-          <div className="flex justify-between">
-            <span>{t("mode.compare.privacy")}</span>
-            <span>{t("mode.compare.privacy.detail")}</span>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <CompareRow label={t("mode.compare.tech")} value={t("mode.compare.tech.detail")} />
+            <CompareRow label={t("mode.compare.cost")} value={t("mode.compare.cost.detail")} />
+            <CompareRow label={t("mode.compare.exclusive")} value={t("mode.compare.exclusive.detail")} />
+            <CompareRow label={t("mode.compare.privacy")} value={t("mode.compare.privacy.detail")} />
+          </div>
+
+          <div className="grid gap-3 pt-1 md:grid-cols-2">
+            <FlowTrack
+              eyebrow={isZh ? "Rental track" : "Rental track"}
+              title={isZh ? "选择协议，付款后立即交付连接。" : "Choose a protocol, pay once, and move straight into a live node."}
+              steps={
+                isZh
+                  ? ["选择协议与时长", "付款或兑换码", "获取配置并续费/销毁"]
+                  : ["Select protocol and duration", "Pay or redeem", "Receive config and renew or destroy"]
+              }
+            />
+            <FlowTrack
+              eyebrow={isZh ? "Self-hosted track" : "Self-hosted track"}
+              title={isZh ? "授权后配置基础设施，再让系统完成部署。" : "Authorize, choose infrastructure, then let the system finish the rest."}
+              steps={
+                isZh
+                  ? ["选择接入方式", "配置域名、协议与清理策略", "审阅风险并部署"]
+                  : ["Choose access method", "Set domain, protocol, and cleanup", "Review risk and deploy"]
+              }
+            />
+          </div>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        {outcomeCards.map((item, index) => (
+          <Card key={item.title} className={`p-6 ${index === 1 ? "md:translate-y-4" : ""}`}>
+            <div className="section-eyebrow">{isZh ? "Outcome" : "Outcome"}</div>
+            <h3 className="mt-3 text-2xl font-semibold tracking-[-0.04em]">{item.title}</h3>
+            <p className="mt-3 text-sm leading-7 text-muted-foreground">{item.body}</p>
+          </Card>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function HeroPreview() {
+  return (
+    <div className="relative min-h-[420px] min-w-0 overflow-hidden rounded-[2.45rem] border border-white/70 bg-slate-950 p-5 text-white shadow-[0_34px_80px_rgba(15,23,42,0.24)] md:p-6">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_18%,rgba(78,164,255,0.42),transparent_32%),radial-gradient(circle_at_78%_74%,rgba(255,179,113,0.26),transparent_34%),linear-gradient(160deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]" />
+
+      <div className="relative flex h-full flex-col justify-between gap-6">
+        <div className="flex items-center justify-between text-xs text-white/58">
+          <span>AnixOps Control</span>
+          <span>private.edge</span>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-[1.75rem] border border-white/12 bg-white/10 p-5 backdrop-blur-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-[0.24em] text-white/45">Delivery state</div>
+                <div className="mt-2 text-3xl font-semibold tracking-[-0.05em]">Ready in motion</div>
+              </div>
+              <div className="rounded-full border border-white/16 bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-white/70">
+                Live
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <PreviewTile label="Runtime" value="23:58" emphasize />
+              <PreviewTile label="Protocol" value="VLESS Reality" />
+              <PreviewTile label="Region" value="Tokyo" />
+              <PreviewTile label="Cleanup" value="Auto after expiry" />
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[1.6rem] border border-white/12 bg-white/10 p-4 backdrop-blur-xl">
+              <div className="text-xs uppercase tracking-[0.24em] text-white/45">Flow</div>
+              <div className="mt-3 space-y-2.5">
+                <PreviewLine title="Select" note="Protocol and duration" state="done" />
+                <PreviewLine title="Authorize" note="Payment or magic link" state="active" />
+                <PreviewLine title="Deploy" note="Config delivery and cleanup" state="pending" />
+              </div>
+            </div>
+
+            <div className="rounded-[1.6rem] border border-white/12 bg-white/10 p-4 backdrop-blur-xl">
+              <div className="text-xs uppercase tracking-[0.24em] text-white/45">Design target</div>
+              <p className="mt-3 text-sm leading-6 text-white/75">
+                Fewer choices on screen, stronger status feedback, and no ambiguity about what happens next.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.22em] text-white/68">
+                <span className="rounded-full border border-white/12 px-3 py-1">Zero shared IP</span>
+                <span className="rounded-full border border-white/12 px-3 py-1">Explicit cleanup</span>
+                <span className="rounded-full border border-white/12 px-3 py-1">Calm control</span>
+              </div>
+            </div>
           </div>
         </div>
+
+        <div className="rounded-full border border-white/12 bg-white/10 px-4 py-2 text-xs text-white/70 backdrop-blur-xl">
+          Built to keep payment, state, config, and cleanup inside one continuous surface.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewTile({
+  label,
+  value,
+  emphasize = false,
+}: {
+  label: string;
+  value: string;
+  emphasize?: boolean;
+}) {
+  return (
+    <div className="rounded-[1.25rem] border border-white/10 bg-white/10 p-4 backdrop-blur-xl">
+      <div className="text-[11px] uppercase tracking-[0.22em] text-white/44">{label}</div>
+      <div className={`mt-2 ${emphasize ? "font-mono text-4xl tracking-[-0.07em]" : "text-sm font-semibold"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function PreviewLine({
+  title,
+  note,
+  state,
+}: {
+  title: string;
+  note: string;
+  state: "done" | "active" | "pending";
+}) {
+  const marker =
+    state === "done"
+      ? "bg-green-400"
+      : state === "active"
+        ? "bg-white"
+        : "bg-white/16";
+
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/10 px-3 py-3">
+      <span className={`h-2.5 w-2.5 rounded-full ${marker}`} />
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-xs text-white/55">{note}</div>
+      </div>
+    </div>
+  );
+}
+
+function FlowTrack({
+  eyebrow,
+  title,
+  steps,
+}: {
+  eyebrow: string;
+  title: string;
+  steps: string[];
+}) {
+  return (
+    <div className="rounded-[1.7rem] border border-black/5 bg-white/70 p-5">
+      <div className="section-eyebrow">{eyebrow}</div>
+      <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">{title}</h3>
+      <div className="mt-4 space-y-2.5">
+        {steps.map((step, index) => (
+          <div key={step} className="flex gap-3 rounded-2xl border border-black/5 bg-white/80 px-3 py-3">
+            <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-950 text-[11px] font-semibold text-white">
+              {index + 1}
+            </div>
+            <div className="pt-0.5 text-sm leading-6 text-foreground">{step}</div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -158,35 +583,65 @@ function ModeSelection({ onSelect }: { onSelect: (mode: AppMode) => void }) {
 
 function ModeCard({
   mode,
-  icon,
+  eyebrow,
   title,
   description,
   badge,
+  details,
+  cta,
   onSelect,
 }: {
   mode: AppMode;
-  icon: string;
+  eyebrow: string;
   title: string;
   description: string;
   badge: string;
+  details: string[];
+  cta: string;
   onSelect: (mode: AppMode) => void;
 }) {
   return (
-    <button
-      onClick={() => onSelect(mode)}
-      className="rounded-xl border-2 border-border/60 p-6 text-left transition-all hover:border-primary/50 hover:shadow-md"
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-2xl">{icon}</div>
-          <h2 className="mt-3 text-lg font-semibold">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    <button onClick={() => onSelect(mode)} className="choice-card group min-h-[320px] p-5 md:p-6">
+      <div className="flex h-full flex-col justify-between gap-8">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="section-eyebrow">{eyebrow}</div>
+            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">{title}</h2>
+            <p className="mt-3 max-w-xl text-sm leading-7 text-muted-foreground md:text-base">{description}</p>
+          </div>
+          <Badge variant="outline" className="px-3 py-1">
+            {badge}
+          </Badge>
         </div>
-        <Badge variant="outline" className="text-xs">
-          {badge}
-        </Badge>
+
+        <div className="space-y-2.5">
+          {details.map((detail) => (
+            <div
+              key={detail}
+              className="rounded-[1.35rem] border border-black/5 bg-white/60 px-4 py-3 text-sm leading-6 text-muted-foreground"
+            >
+              {detail}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-sm font-semibold text-primary transition group-hover:translate-x-1">{cta}</span>
+          <span className="rounded-full border border-black/5 bg-white/85 px-3 py-1 text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+            {mode === "rental" ? "Fast path" : "Control path"}
+          </span>
+        </div>
       </div>
     </button>
+  );
+}
+
+function CompareRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.45rem] border border-black/5 bg-white/60 p-4">
+      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-foreground/85">{label}</div>
+      <div className="mt-2 text-sm leading-6 text-muted-foreground">{value}</div>
+    </div>
   );
 }
 
@@ -201,26 +656,32 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   return (
-    <main className="flex min-h-screen flex-col items-center">
-      <header className="w-full border-b border-border/40 bg-background/60 backdrop-blur-sm">
-        <div className="container mx-auto flex h-14 items-center justify-between px-4">
-          <button onClick={reset} className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-lg bg-primary" />
-            <span className="text-lg font-bold tracking-tight">AnixOps</span>
+    <main className="apple-shell flex min-h-screen flex-col">
+      <header className="sticky top-0 z-40 w-full px-3 pt-3">
+        <div className="mobile-viewport-frame-narrow mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 rounded-full border border-white/70 bg-white/75 px-3 py-2 shadow-[0_12px_40px_rgba(18,30,49,0.08)] backdrop-blur-2xl md:px-5">
+          <button onClick={reset} className="flex items-center gap-3 rounded-full pr-2">
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-950 text-xs font-semibold text-white shadow-lg">
+              AX
+            </div>
+            <div className="text-left">
+              <div className="text-base font-semibold tracking-[-0.03em]">AnixOps</div>
+              <div className="hidden text-[11px] uppercase tracking-[0.22em] text-muted-foreground md:block">
+                Private node delivery
+              </div>
+            </div>
           </button>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+
+          <div className="flex flex-wrap items-center justify-end gap-2 text-sm text-muted-foreground">
             {mode === "self-hosted" && (
-              <span className={`rounded-md border px-2 py-0.5 text-xs ${token ? "border-green-300 text-green-700" : "border-amber-300 text-amber-700"}`}>
-                {token ? "Authorized" : "Unauthorized"}
-              </span>
+              <ShellAction tone={token ? "success" : "warning"}>
+                {token ? "Authorized" : "Sign-in required"}
+              </ShellAction>
             )}
-            {mode === "rental" && (
-              <span className="text-xs text-muted-foreground">{t("mode.rental.label")}</span>
-            )}
+            {mode === "rental" && <ShellAction>{t("mode.rental.label")}</ShellAction>}
             {mode === "rental" && token && (
               <button
                 onClick={() => router.push("/payments")}
-                className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition"
+                className="rounded-full border border-black/10 bg-white/60 px-3 py-1 text-xs transition hover:bg-white"
               >
                 {t("payment.history")}
               </button>
@@ -228,20 +689,20 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             {token && isAdmin && (
               <button
                 onClick={() => router.push("/admin")}
-                className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition"
+                className="rounded-full border border-black/10 bg-white/60 px-3 py-1 text-xs transition hover:bg-white"
               >
                 Admin
               </button>
             )}
             {token && email && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full border border-black/5 bg-white/55 px-3 py-1">
                 <span className="max-w-[180px] truncate text-xs">{email}</span>
                 <button
                   onClick={() => {
                     logout();
                     router.push("/");
                   }}
-                  className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition"
+                  className="rounded-full border border-black/10 bg-white/80 px-3 py-1 text-xs transition hover:bg-white"
                 >
                   Logout
                 </button>
@@ -249,7 +710,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             )}
             <button
               onClick={() => setLocale(locale === "zh" ? "en" : "zh")}
-              className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition"
+              className="rounded-full border border-black/10 bg-slate-950 px-3 py-1 text-xs text-white shadow-sm transition hover:bg-slate-800"
             >
               {locale === "zh" ? t("common.lang.en") : t("common.lang.zh")}
             </button>
@@ -257,21 +718,52 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-8 md:py-12">
-        <div className="mx-auto max-w-2xl">{children}</div>
+      <div className="mobile-viewport-frame mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:py-14">
+        {children}
       </div>
 
-      <footer className="mt-auto w-full border-t border-border/40 py-6">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          {t("footer.free")} ·{" "}
-          <a href="#kb" className="text-primary hover:underline">{t("footer.kb")}</a>
-          {" "}·{" "}
-          <a href="#ai-agent" className="text-primary hover:underline">{t("footer.ai")} →</a>
-          <div className="mt-2 text-xs text-muted-foreground/80">
-            FE v{versions.frontend} · BE v{versions.backend} · {versions.commit || "dev"}
+      <footer className="mt-auto w-full px-4 pb-8">
+        <div className="mx-auto grid max-w-6xl gap-4 rounded-[1.9rem] border border-white/60 bg-white/65 px-5 py-5 backdrop-blur-xl md:grid-cols-[1.2fr_0.8fr] md:px-6">
+          <div>
+            <div className="text-sm font-semibold tracking-[-0.02em] text-foreground">
+              Calm control for self-hosted and rental node delivery.
+            </div>
+            <div className="mt-2 text-sm leading-6 text-muted-foreground">
+              {t("footer.free")} |{" "}
+              <a href="#kb" className="text-primary hover:underline">
+                {t("footer.kb")}
+              </a>
+              {" "}|
+              {" "}
+              <a href="#ai-agent" className="text-primary hover:underline">
+                {t("footer.ai")}
+              </a>
+            </div>
+          </div>
+
+          <div className="space-y-1 text-left text-xs text-muted-foreground md:text-right">
+            <div>FE v{versions.frontend} | BE v{versions.backend}</div>
+            <div>{versions.commit || "dev"}</div>
           </div>
         </div>
       </footer>
     </main>
   );
+}
+
+function ShellAction({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "success" | "warning";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-green-300 bg-green-50 text-green-700"
+      : tone === "warning"
+        ? "border-amber-300 bg-amber-50 text-amber-700"
+        : "border-black/10 bg-white/60 text-muted-foreground";
+
+  return <span className={`rounded-full border px-3 py-1 text-xs ${toneClass}`}>{children}</span>;
 }

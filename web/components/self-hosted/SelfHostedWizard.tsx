@@ -5,8 +5,12 @@ import { useDeployStore } from "@/lib/deploy/store";
 import { useAuthStore } from "@/lib/auth/store";
 import { PROVIDER_INFO, PROTOCOL_INFO } from "@/lib/deploy/types";
 import { useLocaleStore } from "@/lib/i18n/store";
-import { Button, Input, Label, Card } from "@/components/ui";
-import { encodeBase64Text, generateHysteria2Config, generateVlessRealityConfig } from "@/lib/config/generator";
+import { Button, Input, Label, Card, Badge } from "@/components/ui";
+import {
+  encodeBase64Text,
+  generateHysteria2Config,
+  generateVlessRealityConfig,
+} from "@/lib/config/generator";
 
 export function SelfHostedWizard() {
   const step = useDeployStore((s) => s.step);
@@ -52,25 +56,38 @@ export function SelfHostedWizard() {
   const setError = useDeployStore((s) => s.setError);
   const reset = useDeployStore((s) => s.reset);
   const { t, locale } = useLocaleStore();
+  const isZh = locale === "zh";
+
   const localText = {
-    cleanupTitle: locale === "zh" ? "自动清理" : "Auto cleanup",
-    cleanupModeDuration: locale === "zh" ? "按时长" : "After duration",
-    cleanupModeDatetime: locale === "zh" ? "指定时间" : "At exact time",
-    cleanupHours: locale === "zh" ? "保留小时数" : "Keep alive hours",
-    cleanupHoursHint: locale === "zh" ? "支持小数，例如 0.5 表示 30 分钟" : "Decimal values are allowed. Example: 0.5 means 30 minutes.",
-    cleanupDatetime: locale === "zh" ? "清理时间" : "Cleanup time",
-    cleanupDatetimeHint: locale === "zh" ? "到期后将停止服务并清理 Xray/Hysteria 痕迹" : "When reached, the server timer stops services and wipes Xray/Hysteria traces.",
-    cleanupReview: locale === "zh" ? "自动清理" : "Auto cleanup",
-    shareTitle: locale === "zh" ? "节点链接" : "Node link",
-    copyRaw: locale === "zh" ? "复制原始链接" : "Copy raw link",
-    copyBase64: locale === "zh" ? "复制 Base64" : "Copy Base64",
+    cleanupTitle: isZh ? "自动清理" : "Auto cleanup",
+    cleanupModeDuration: isZh ? "按时长" : "After duration",
+    cleanupModeDatetime: isZh ? "指定时间" : "At exact time",
+    cleanupHours: isZh ? "保留小时数" : "Keep alive hours",
+    cleanupHoursHint: isZh
+      ? "支持小数，例如 0.5 表示 30 分钟。"
+      : "Decimal values are allowed. For example, 0.5 means 30 minutes.",
+    cleanupDatetime: isZh ? "清理时间" : "Cleanup time",
+    cleanupDatetimeHint: isZh
+      ? "到期后会停止服务并清理 Xray 或 Hysteria 痕迹。"
+      : "When the time is reached, services stop and Xray or Hysteria traces are removed.",
+    cleanupReview: isZh ? "自动清理" : "Auto cleanup",
+    shareTitle: isZh ? "节点链接" : "Node link",
+    copyRaw: isZh ? "复制原始链接" : "Copy raw link",
+    copyBase64: isZh ? "复制 Base64" : "Copy Base64",
   };
+
   const generatedShareLink = useMemo(() => {
     if (!config?.protocol || !config.ip || !config.port) {
       return null;
     }
 
-    if (config.protocol === "vless-reality" && config.uuid && config.serverName && config.publicKey && config.shortId) {
+    if (
+      config.protocol === "vless-reality" &&
+      config.uuid &&
+      config.serverName &&
+      config.publicKey &&
+      config.shortId
+    ) {
       return generateVlessRealityConfig({
         ip: config.ip,
         port: Number(config.port),
@@ -93,355 +110,667 @@ export function SelfHostedWizard() {
 
     return null;
   }, [config]);
+
   const encodedShareLink = generatedShareLink ? encodeBase64Text(generatedShareLink) : null;
+
+  const providerInfo = deployMethod === "api" && provider ? PROVIDER_INFO[provider] : null;
+  const regionName = providerInfo
+    ? t(providerInfo.regions.find((item) => item.id === region)?.nameKey || "")
+    : "";
+  const planInfo = providerInfo?.plans.find((item) => item.id === plan);
+  const cleanupSummary =
+    cleanupMode === "duration" ? `${cleanupHours || "24"}h` : cleanupAtInput || "—";
+
+  const snapshotRows = [
+    {
+      label: isZh ? "接入方式" : "Access",
+      value:
+        deployMethod === "api"
+          ? t("selfhosted.method.api")
+          : deployMethod === "ssh"
+            ? t("selfhosted.method.ssh")
+            : "—",
+    },
+    {
+      label: isZh ? "供应商 / 主机" : "Provider / host",
+      value:
+        deployMethod === "api"
+          ? providerInfo?.name || "—"
+          : serverIp || "—",
+    },
+    {
+      label: t("selfhosted.review.protocol"),
+      value: protocol ? t(PROTOCOL_INFO[protocol].nameKey) : "—",
+    },
+    {
+      label: localText.cleanupReview,
+      value: cleanupSummary,
+    },
+  ];
+
+  const checklist = isZh
+    ? [
+        "连接方式和凭据放在同一步，减少来回切换。",
+        "协议、域名和清理策略作为同一个交付面审阅。",
+        "部署前单独强调费用与回滚风险。",
+      ]
+    : [
+        "Connection path and credentials stay in one place to reduce context switching.",
+        "Protocol, domain, and cleanup policy are reviewed as one delivery surface.",
+        "Cost and rollback risk are isolated before deployment starts.",
+      ];
 
   if (status === "running") {
     return (
-      <Card className="p-6 space-y-4">
-        <h2 className="text-lg font-semibold">{t("selfhosted.deploying")}</h2>
-        <p className="text-sm text-muted-foreground">{t("selfhosted.deploying.note")}</p>
-        {steps.map((s) => (
-          <div key={s.id} className="flex items-center gap-3 text-sm">
-            <span>{s.status === "success" ? "✅" : s.status === "running" ? "⏳" : s.status === "failed" ? "❌" : "⬜"}</span>
-            <span className="flex-1">{t(s.label)}</span>
-            {s.message && <span className="text-xs text-muted-foreground">{s.message}</span>}
+      <div className="animate-rise grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <Card className="space-y-6 p-6 md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="section-eyebrow">Deployment</div>
+              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">
+                {t("selfhosted.deploying")}
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+                {t("selfhosted.deploying.note")}
+              </p>
+            </div>
+            <div className="metric-pill self-start">Live</div>
           </div>
-        ))}
-        {deployLogs.length > 0 && (
-          <div className="rounded-lg border bg-muted/30 p-3">
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Logs</div>
-            <div className="max-h-56 space-y-1 overflow-auto font-mono text-xs">
-              {deployLogs.map((log, index) => (
-                <div key={`${log.ts}-${index}`} className="flex gap-2">
-                  <span className="shrink-0 text-muted-foreground">{new Date(log.ts).toLocaleTimeString()}</span>
-                  <span className={log.level === "error" ? "text-red-600" : log.level === "warn" ? "text-amber-600" : "text-foreground"}>
-                    {log.message}
-                  </span>
+
+          <div className="space-y-3">
+            {steps.map((item) => (
+              <StatusStep
+                key={item.id}
+                status={item.status}
+                label={t(item.label)}
+                message={item.message}
+              />
+            ))}
+          </div>
+
+          {deployLogs.length > 0 && (
+            <div className="rounded-[1.7rem] border border-black/5 bg-white/75 p-4">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                Logs
+              </div>
+              <div className="code-block max-h-64 space-y-1 overflow-auto">
+                {deployLogs.map((log, index) => (
+                  <div key={`${log.ts}-${index}`} className="flex gap-2">
+                    <span className="shrink-0 text-muted-foreground">
+                      {new Date(log.ts).toLocaleTimeString()}
+                    </span>
+                    <span
+                      className={
+                        log.level === "error"
+                          ? "text-red-600"
+                          : log.level === "warn"
+                            ? "text-amber-600"
+                            : "text-foreground"
+                      }
+                    >
+                      {log.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <WizardAside
+          title={isZh ? "部署快照" : "Deployment snapshot"}
+          rows={snapshotRows}
+          footer={(
+            <div className="space-y-2">
+              {[
+                isZh ? "系统会按阶段回传状态与日志。" : "The server reports progress and logs back in phases.",
+                isZh ? "成功后可直接复制原始链接或 Base64。" : "On success you can copy the raw link or the Base64 form immediately.",
+                isZh ? "清理策略会跟配置一起返回，避免部署后状态失联。" : "Cleanup policy returns with the config so the end state is explicit.",
+              ].map((note) => (
+                <div
+                  key={note}
+                  className="rounded-[1.25rem] border border-black/5 bg-white/75 px-4 py-3 text-sm leading-6 text-muted-foreground"
+                >
+                  {note}
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </Card>
+          )}
+        />
+      </div>
     );
   }
 
   if (status === "success" && config) {
     return (
-      <Card className="p-6 space-y-4">
-        <div className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">✓</div>
-          <h2 className="text-2xl font-bold text-green-700">{t("selfhosted.success")}</h2>
+      <div className="animate-rise grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-5">
+          <Card className="space-y-6 p-6 md:p-8">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div className="section-eyebrow">{isZh ? "Deployment complete" : "Deployment complete"}</div>
+                <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-green-700 md:text-4xl">
+                  {t("selfhosted.success")}
+                </h2>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+                  {isZh
+                    ? "节点已经可用，连接信息、清理策略与导出链接都在当前页完整交付。"
+                    : "The node is live. Connection details, cleanup policy, and export links are all delivered on this page."}
+                </p>
+              </div>
+              <Badge className="self-start px-3 py-1 md:self-auto">
+                {String(config.protocol ?? "")}
+              </Badge>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <SummaryRow label={t("selfhosted.summary.protocol")} value={String(config.protocol ?? "")} />
+              <SummaryRow
+                label={t("selfhosted.summary.connection")}
+                value={config.ip ? `${String(config.ip)}:${String(config.port ?? "")}` : "—"}
+                mono
+              />
+              <SummaryRow
+                label={t("selfhosted.summary.cleanupMode")}
+                value={String(config.cleanupMode ?? "—")}
+              />
+              <SummaryRow
+                label={t("selfhosted.summary.cleanupAt")}
+                value={String(config.cleanupAt ?? "—")}
+              />
+              <SummaryRow
+                label={t("selfhosted.summary.cleanupTimer")}
+                value={String(config.cleanupTimerName ?? "—")}
+                mono
+              />
+            </div>
+          </Card>
+
+          <Card className="space-y-4 p-6 md:p-8">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="section-eyebrow">{isZh ? "Configuration payload" : "Configuration payload"}</div>
+                <h3 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+                  {isZh ? "完整返回字段" : "Full returned fields"}
+                </h3>
+              </div>
+            </div>
+
+            <div className="table-shell divide-y divide-black/5 text-sm">
+              {Object.entries(config).map(([key, value]) => (
+                <div key={key} className="flex justify-between gap-4 px-4 py-3">
+                  <span className="text-muted-foreground">{key}</span>
+                  <span className="break-all text-right font-mono text-xs">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
-        <div className="rounded-lg bg-muted/40 p-4 text-sm space-y-2">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">{t("selfhosted.summary.protocol")}</span>
-            <span>{String(config.protocol ?? "")}</span>
-          </div>
-          {config.ip && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t("selfhosted.summary.connection")}</span>
-              <span className="font-mono text-xs">{String(config.ip)}:{String(config.port ?? "")}</span>
-            </div>
+
+        <div className="space-y-4">
+          {generatedShareLink && (
+            <Card className="space-y-4 p-5">
+              <div>
+                <div className="section-eyebrow">{isZh ? "Export" : "Export"}</div>
+                <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{localText.shareTitle}</h3>
+              </div>
+              <div className="code-block break-all">{generatedShareLink}</div>
+              <div className="flex flex-col gap-2">
+                <Button variant="outline" onClick={() => navigator.clipboard?.writeText(generatedShareLink)}>
+                  {localText.copyRaw}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => encodedShareLink && navigator.clipboard?.writeText(encodedShareLink)}
+                >
+                  {localText.copyBase64}
+                </Button>
+              </div>
+              {encodedShareLink && (
+                <div className="rounded-[1.25rem] border border-black/5 bg-white/70 px-4 py-3 break-all font-mono text-xs text-muted-foreground">
+                  {encodedShareLink}
+                </div>
+              )}
+            </Card>
           )}
-          {config.cleanupAt && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t("selfhosted.summary.cleanupAt")}</span>
-              <span>{String(config.cleanupAt)}</span>
-            </div>
-          )}
-          {config.cleanupMode && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t("selfhosted.summary.cleanupMode")}</span>
-              <span>{String(config.cleanupMode)}</span>
-            </div>
-          )}
-          {config.cleanupTimerName && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t("selfhosted.summary.cleanupTimer")}</span>
-              <span className="font-mono text-xs">{String(config.cleanupTimerName)}</span>
-            </div>
-          )}
-        </div>
-        <div className="space-y-2 text-sm">
-          {Object.entries(config).map(([key, value]) => (
-            <div key={key} className="flex justify-between">
-              <span className="text-muted-foreground">{key}</span>
-              <span className="font-mono text-xs">{value}</span>
-            </div>
-          ))}
-        </div>
-        {generatedShareLink && (
-          <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-            <div className="text-sm font-medium">{localText.shareTitle}</div>
-            <div className="break-all font-mono text-xs">{generatedShareLink}</div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={() => navigator.clipboard?.writeText(generatedShareLink)}
-              >
-                {localText.copyRaw}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => encodedShareLink && navigator.clipboard?.writeText(encodedShareLink)}
-              >
-                {localText.copyBase64}
-              </Button>
-            </div>
-            {encodedShareLink && (
-              <div className="break-all font-mono text-xs text-muted-foreground">{encodedShareLink}</div>
+
+          <WizardAside
+            title={isZh ? "交付说明" : "Delivery notes"}
+            rows={snapshotRows}
+            footer={(
+              <div className="space-y-2">
+                {[
+                  isZh ? "建议在客户端导入后先做一次短链路验证。" : "After import, validate with a short client connection check.",
+                  isZh ? "保留返回的清理时间，避免误判节点生命周期。" : "Keep the cleanup timestamp visible so lifecycle is never ambiguous.",
+                  isZh ? "需要重新开始时可回到首页并重置当前会话。" : "If you need to start again, return home and reset the current session.",
+                ].map((note) => (
+                  <div
+                    key={note}
+                    className="rounded-[1.25rem] border border-black/5 bg-white/75 px-4 py-3 text-sm leading-6 text-muted-foreground"
+                  >
+                    {note}
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
-        )}
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={reset}>{t("common.back")}</Button>
+          />
+
+          <Button variant="outline" onClick={reset}>
+            {t("common.back")}
+          </Button>
         </div>
-      </Card>
+      </div>
     );
   }
 
   if (status === "failed") {
     return (
-      <Card className="p-6 space-y-4">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-red-600">{t("selfhosted.failed")}</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-          <div className="mt-4 space-x-2">
-            <Button variant="outline" onClick={() => { setStatus("pending"); setStep(1); }}>
-              {t("common.retry")}
-            </Button>
-          </div>
+      <Card className="animate-rise mx-auto max-w-xl space-y-5 p-8 text-center">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-xl font-semibold text-red-600">
+          !
         </div>
+        <div>
+          <h2 className="text-2xl font-semibold tracking-[-0.035em] text-red-600">
+            {t("selfhosted.failed")}
+          </h2>
+          <p className="mt-3 text-sm leading-7 text-muted-foreground">{error}</p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setStatus("pending");
+            setStep(1);
+          }}
+        >
+          {t("common.retry")}
+        </Button>
       </Card>
     );
   }
 
-  // Step 1: Connection Method + Credentials
   if (step === 1) {
     const isApi = deployMethod === "api";
     const isSsh = deployMethod === "ssh";
     const canProceed = isApi
-      ? provider && apiKey && region && plan
-      : isSsh && serverIp && sshPassword;
+      ? Boolean(provider && apiKey && region && plan)
+      : Boolean(isSsh && serverIp && sshPassword);
 
     return (
-      <Card className="p-6 space-y-6">
-        <h2 className="text-lg font-semibold">{t("selfhosted.step1.title")}</h2>
-
-        {/* Deploy method selection */}
-        <div>
-          <Label>{t("selfhosted.connectionMethod")}</Label>
-          <div className="mt-2 grid grid-cols-2 gap-3">
-            <button
-              onClick={() => { setDeployMethod("api"); setProvider(null); setApiKey(""); setRegion(""); setPlan(""); }}
-              className={`rounded-lg border-2 p-4 text-left transition-all ${
-                isApi ? "border-primary bg-primary/5" : "border-border text-muted-foreground hover:border-primary/50"
-              }`}
-            >
-              <div className="font-medium">{t("selfhosted.method.api")}</div>
-              <div className="text-xs text-muted-foreground">{t("selfhosted.method.api.desc")}</div>
-            </button>
-            <button
-              onClick={() => setDeployMethod("ssh")}
-              className={`rounded-lg border-2 p-4 text-left transition-all ${
-                isSsh ? "border-primary bg-primary/5" : "border-border text-muted-foreground hover:border-primary/50"
-              }`}
-            >
-              <div className="font-medium">{t("selfhosted.method.ssh")}</div>
-              <div className="text-xs text-muted-foreground">{t("selfhosted.method.ssh.desc")}</div>
-            </button>
-          </div>
-        </div>
-
-        {/* API mode: cloud provider selection */}
-        {isApi && (
-          <>
-            <div>
-              <Label>{t("selfhosted.provider")}</Label>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                {(["vultr", "digitalocean", "aws"] as const).map((key) => (
-                  <button
-                    key={key}
-                    onClick={() => setProvider(key)}
-                    className={`rounded-lg border-2 p-3 text-center text-sm font-medium transition-all ${
-                      provider === key ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/50"
-                    }`}
+      <WizardFrame
+        eyebrow="Self-hosted"
+        title={t("selfhosted.step1.title")}
+        description={t("selfhosted.connectionMethod")}
+        stepLabel="1 / 3"
+        aside={(
+          <WizardAside
+            title={isZh ? "部署前准备" : "Before you deploy"}
+            rows={snapshotRows}
+            footer={(
+              <div className="space-y-2">
+                {checklist.map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-[1.25rem] border border-black/5 bg-white/75 px-4 py-3 text-sm leading-6 text-muted-foreground"
                   >
-                    {PROVIDER_INFO[key].name}
-                  </button>
+                    {item}
+                  </div>
                 ))}
               </div>
-            </div>
-
-            {provider && (
-              <>
-                <div>
-                  <Label>{t("selfhosted.apikey.label")}</Label>
-                  <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={provider === "aws" ? "AKIA...:wJalr..." : t("selfhosted.apikey.placeholder")} className="mt-1" />
-                  {provider === "aws" && <p className="mt-1 text-xs text-muted-foreground">{t("selfhosted.awsKeyFormat")}</p>}
-                </div>
-                <div>
-                  <Label>{t("selfhosted.region")}</Label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {PROVIDER_INFO[provider].regions.map((r) => (
-                      <button key={r.id} onClick={() => setRegion(r.id)}
-                        className={`rounded-full border px-3 py-1 text-sm transition-all ${region === r.id ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/50"}`}
-                      >{t(r.nameKey)}</button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Label>{t("selfhosted.plan")}</Label>
-                  <div className="mt-2 space-y-2">
-                    {PROVIDER_INFO[provider].plans.map((p) => (
-                      <button key={p.id} onClick={() => setPlan(p.id)}
-                        className={`w-full rounded-lg border-2 p-3 text-left transition-all ${plan === p.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">{p.name}</span>
-                          <span className="text-sm text-primary">{t(p.priceKey)}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
             )}
-          </>
+          />
         )}
-
-        {/* SSH mode: direct connect */}
-        {isSsh && (
-          <>
-            <div>
-              <Label>{t("selfhosted.serverIp.label")}</Label>
-              <Input value={serverIp} onChange={(e) => setServerIp(e.target.value)} placeholder={t("selfhosted.serverIp.placeholder")} className="mt-1" />
-            </div>
-            <div>
-              <Label>{t("selfhosted.sshPort.label")}</Label>
-              <Input type="number" value={sshPort} onChange={(e) => setSshPort(Number(e.target.value))} className="mt-1" />
-            </div>
-            <div>
-              <Label>{t("selfhosted.sshPassword.label")}</Label>
-              <Input type="password" value={sshPassword} onChange={(e) => setSshPassword(e.target.value)} placeholder={t("selfhosted.sshPassword.placeholder")} className="mt-1" />
-              <p className="mt-1 text-xs text-muted-foreground">{t("selfhosted.sshPasswordHint")}</p>
-            </div>
-          </>
-        )}
-
-        <div className="flex justify-end">
-          <Button disabled={!canProceed} onClick={() => setStep(2)}>{t("common.next")}</Button>
-        </div>
-      </Card>
-    );
-  }
-
-  // Step 2: Domain & Protocol
-  if (step === 2) {
-    // VLESS Reality doesn't need a domain
-    const hasCleanupValue = cleanupMode === "duration"
-      ? cleanupHours.trim().length > 0
-      : cleanupAtInput.trim().length > 0;
-    const canProceed = (protocol === "vless-reality" || domain) && protocol && hasCleanupValue;
-    return (
-      <Card className="p-6 space-y-6">
-        <h2 className="text-lg font-semibold">{t("selfhosted.step2.title")}</h2>
-
-        <div>
-          <Label>{t("selfhosted.domain.label")}</Label>
-          <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder={t("selfhosted.domain.placeholder")} className="mt-1" />
-        </div>
-
-        <div>
-          <Label>{t("selfhosted.dns.label")}</Label>
-          <Input type="password" value={dnsToken} onChange={(e) => setDnsToken(e.target.value)} placeholder={t("selfhosted.dns.placeholder")} className="mt-1" />
-        </div>
-
-        <div>
-          <Label>{t("selfhosted.protocol")}</Label>
-          <div className="mt-2 space-y-2">
-            {(["vless-reality", "hysteria2"] as const).map((key) => (
-              <button key={key} onClick={() => setProtocol(key)}
-                className={`w-full rounded-lg border-2 p-4 text-left transition-all ${protocol === key ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+      >
+        <div className="space-y-7">
+          <section>
+            <Label>{t("selfhosted.connectionMethod")}</Label>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <button
+                onClick={() => {
+                  setDeployMethod("api");
+                  setProvider(null);
+                  setApiKey("");
+                  setRegion("");
+                  setPlan("");
+                }}
+                className={`choice-card min-h-[176px] ${isApi ? "choice-card-active" : ""}`}
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">{PROTOCOL_INFO[key].icon}</span>
+                <div className="space-y-4 text-left">
+                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-950 text-sm font-semibold text-white shadow-lg">
+                    API
+                  </div>
                   <div>
-                    <div className="font-medium">{t(PROTOCOL_INFO[key].nameKey)}</div>
-                    <div className="text-sm text-muted-foreground">{t(PROTOCOL_INFO[key].descKey)}</div>
+                    <div className="text-lg font-semibold tracking-[-0.025em]">
+                      {t("selfhosted.method.api")}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {t("selfhosted.method.api.desc")}
+                    </div>
                   </div>
                 </div>
               </button>
-            ))}
-          </div>
-        </div>
+              <button
+                onClick={() => setDeployMethod("ssh")}
+                className={`choice-card min-h-[176px] ${isSsh ? "choice-card-active" : ""}`}
+              >
+                <div className="space-y-4 text-left">
+                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-950 text-sm font-semibold text-white shadow-lg">
+                    SSH
+                  </div>
+                  <div>
+                    <div className="text-lg font-semibold tracking-[-0.025em]">
+                      {t("selfhosted.method.ssh")}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {t("selfhosted.method.ssh.desc")}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </section>
 
-        <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-          <Label>{localText.cleanupTitle}</Label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setCleanupMode("duration")}
-              className={`rounded-lg border px-3 py-2 text-sm transition-all ${
-                cleanupMode === "duration" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/50"
-              }`}
-            >
-              {localText.cleanupModeDuration}
-            </button>
-            <button
-              onClick={() => setCleanupMode("datetime")}
-              className={`rounded-lg border px-3 py-2 text-sm transition-all ${
-                cleanupMode === "datetime" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/50"
-              }`}
-            >
-              {localText.cleanupModeDatetime}
-            </button>
-          </div>
-          {cleanupMode === "duration" ? (
-            <div>
-              <Label>{localText.cleanupHours}</Label>
-              <Input
-                type="number"
-                min="0.1"
-                step="0.5"
-                value={cleanupHours}
-                onChange={(e) => setCleanupHours(e.target.value)}
-                className="mt-1"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">{localText.cleanupHoursHint}</p>
-            </div>
-          ) : (
-            <div>
-              <Label>{localText.cleanupDatetime}</Label>
-              <Input
-                type="datetime-local"
-                value={cleanupAtInput}
-                onChange={(e) => setCleanupAtInput(e.target.value)}
-                className="mt-1"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">{localText.cleanupDatetimeHint}</p>
-            </div>
+          {isApi && (
+            <section className="space-y-6">
+              <div>
+                <Label>{t("selfhosted.provider")}</Label>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  {(["vultr", "digitalocean", "aws"] as const).map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => setProvider(item)}
+                      className={`choice-card min-h-[120px] ${provider === item ? "choice-card-active" : ""}`}
+                    >
+                      <div className="text-left">
+                        <div className="text-base font-semibold tracking-[-0.02em]">
+                          {PROVIDER_INFO[item].name}
+                        </div>
+                        <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                          {item === "aws"
+                            ? "EC2"
+                            : item === "digitalocean"
+                              ? "Droplets"
+                              : "HF / Cloud compute"}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {provider && (
+                <>
+                  <div>
+                    <Label>{t("selfhosted.apikey.label")}</Label>
+                    <Input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={provider === "aws" ? "AKIA...:wJalr..." : t("selfhosted.apikey.placeholder")}
+                      className="mt-2 h-12 rounded-[1.1rem]"
+                    />
+                    {provider === "aws" && (
+                      <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                        {t("selfhosted.awsKeyFormat")}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>{t("selfhosted.region")}</Label>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {PROVIDER_INFO[provider].regions.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => setRegion(item.id)}
+                          className={`rounded-full border px-4 py-2 text-sm transition-all ${
+                            region === item.id
+                              ? "border-primary/50 bg-primary/10 text-primary"
+                              : "border-black/10 bg-white/70 text-muted-foreground hover:bg-white"
+                          }`}
+                        >
+                          {t(item.nameKey)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>{t("selfhosted.plan")}</Label>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      {PROVIDER_INFO[provider].plans.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => setPlan(item.id)}
+                          className={`choice-card min-h-[118px] ${plan === item.id ? "choice-card-active" : ""}`}
+                        >
+                          <div className="flex items-center justify-between gap-4 text-left">
+                            <div className="font-medium">{item.name}</div>
+                            <div className="text-sm text-primary">{t(item.priceKey)}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
+          {isSsh && (
+            <section className="grid gap-5 md:grid-cols-2">
+              <div className="space-y-3 md:col-span-2">
+                <Label>{t("selfhosted.serverIp.label")}</Label>
+                <Input
+                  value={serverIp}
+                  onChange={(e) => setServerIp(e.target.value)}
+                  placeholder={t("selfhosted.serverIp.placeholder")}
+                  className="h-12 rounded-[1.1rem]"
+                />
+              </div>
+              <div className="space-y-3">
+                <Label>{t("selfhosted.sshPort.label")}</Label>
+                <Input
+                  type="number"
+                  value={sshPort}
+                  onChange={(e) => setSshPort(Number(e.target.value))}
+                  className="h-12 rounded-[1.1rem]"
+                />
+              </div>
+              <div className="space-y-3">
+                <Label>{t("selfhosted.sshPassword.label")}</Label>
+                <Input
+                  type="password"
+                  value={sshPassword}
+                  onChange={(e) => setSshPassword(e.target.value)}
+                  placeholder={t("selfhosted.sshPassword.placeholder")}
+                  className="h-12 rounded-[1.1rem]"
+                />
+                <p className="text-xs leading-6 text-muted-foreground">{t("selfhosted.sshPasswordHint")}</p>
+              </div>
+            </section>
           )}
         </div>
 
-        <div className="flex justify-between">
-          <Button variant="outline" onClick={() => setStep(1)}>{t("common.back")}</Button>
-          <Button disabled={!canProceed} onClick={() => setStep(3)}>{t("common.next")}</Button>
+        <div className="flex justify-end border-t border-black/5 pt-6">
+          <Button disabled={!canProceed} onClick={() => setStep(2)} className="h-12 px-6">
+            {t("common.next")}
+          </Button>
         </div>
-      </Card>
+      </WizardFrame>
     );
   }
 
-  // Step 3: Review & Deploy
-  if (step === 3) {
-    const isApi = deployMethod === "api";
-    const providerInfo = isApi && provider ? PROVIDER_INFO[provider] : null;
-    const regionName = providerInfo ? t(providerInfo.regions.find((r) => r.id === region)?.nameKey || "") : "";
-    const planInfo = providerInfo?.plans.find((p) => p.id === plan);
-    const cleanupSummary = cleanupMode === "duration"
-      ? `${cleanupHours || "24"}h`
-      : (cleanupAtInput || "-");
+  if (step === 2) {
+    const hasCleanupValue =
+      cleanupMode === "duration"
+        ? cleanupHours.trim().length > 0
+        : cleanupAtInput.trim().length > 0;
+    const canProceed = Boolean((protocol === "vless-reality" || domain) && protocol && hasCleanupValue);
 
+    return (
+      <WizardFrame
+        eyebrow="Domain and protocol"
+        title={t("selfhosted.step2.title")}
+        description={localText.cleanupDatetimeHint}
+        stepLabel="2 / 3"
+        aside={(
+          <WizardAside
+            title={isZh ? "本步重点" : "This step defines delivery"}
+            rows={[
+              { label: t("selfhosted.domain.label"), value: domain || "—" },
+              { label: t("selfhosted.dns.label"), value: dnsToken ? "Configured" : "Optional" },
+              { label: t("selfhosted.review.protocol"), value: protocol ? t(PROTOCOL_INFO[protocol].nameKey) : "—" },
+              { label: localText.cleanupReview, value: cleanupSummary },
+            ]}
+            footer={(
+              <div className="space-y-2">
+                {[
+                  isZh ? "VLESS Reality 可以不依赖域名继续部署。" : "VLESS Reality can continue without a domain.",
+                  isZh ? "如果写入 DNS Token，后续域名处理将保持自动化。" : "Providing a DNS token keeps follow-up domain work automated.",
+                  isZh ? "清理策略应该在部署前决定，而不是在节点上线后补救。" : "Cleanup policy should be decided before deploy, not patched in after launch.",
+                ].map((note) => (
+                  <div
+                    key={note}
+                    className="rounded-[1.25rem] border border-black/5 bg-white/75 px-4 py-3 text-sm leading-6 text-muted-foreground"
+                  >
+                    {note}
+                  </div>
+                ))}
+              </div>
+            )}
+          />
+        )}
+      >
+        <div className="space-y-7">
+          <section className="grid gap-5 md:grid-cols-2">
+            <div className="space-y-3">
+              <Label>{t("selfhosted.domain.label")}</Label>
+              <Input
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+                placeholder={t("selfhosted.domain.placeholder")}
+                className="h-12 rounded-[1.1rem]"
+              />
+            </div>
+            <div className="space-y-3">
+              <Label>{t("selfhosted.dns.label")}</Label>
+              <Input
+                type="password"
+                value={dnsToken}
+                onChange={(e) => setDnsToken(e.target.value)}
+                placeholder={t("selfhosted.dns.placeholder")}
+                className="h-12 rounded-[1.1rem]"
+              />
+            </div>
+          </section>
+
+          <section>
+            <Label>{t("selfhosted.protocol")}</Label>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {(["vless-reality", "hysteria2"] as const).map((item) => (
+                <button
+                  key={item}
+                  onClick={() => setProtocol(item)}
+                  className={`choice-card min-h-[166px] ${protocol === item ? "choice-card-active" : ""}`}
+                >
+                  <div className="flex h-full items-start gap-4 text-left">
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-slate-950 text-xs font-semibold text-white shadow-lg">
+                      {item === "vless-reality" ? "VR" : "H2"}
+                    </span>
+                    <div>
+                      <div className="text-lg font-semibold tracking-[-0.02em]">
+                        {t(PROTOCOL_INFO[item].nameKey)}
+                      </div>
+                      <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                        {t(PROTOCOL_INFO[item].descKey)}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-[1.75rem] border border-black/5 bg-white/70 p-4 md:p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <Label>{localText.cleanupTitle}</Label>
+              <Badge variant="outline" className="px-3 py-1">
+                {cleanupMode === "duration" ? localText.cleanupModeDuration : localText.cleanupModeDatetime}
+              </Badge>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => setCleanupMode("duration")}
+                className={`choice-card min-h-[110px] ${cleanupMode === "duration" ? "choice-card-active" : ""}`}
+              >
+                <div className="text-left">
+                  <div className="text-base font-semibold tracking-[-0.02em]">
+                    {localText.cleanupModeDuration}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {isZh ? "适合按租用时长或实验窗口清理。" : "Best when cleanup should track a known runtime window."}
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setCleanupMode("datetime")}
+                className={`choice-card min-h-[110px] ${cleanupMode === "datetime" ? "choice-card-active" : ""}`}
+              >
+                <div className="text-left">
+                  <div className="text-base font-semibold tracking-[-0.02em]">
+                    {localText.cleanupModeDatetime}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {isZh ? "适合需要固定截止时间的交付。" : "Best when delivery must end at an exact cutoff."}
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-4">
+              {cleanupMode === "duration" ? (
+                <div className="space-y-3">
+                  <Label>{localText.cleanupHours}</Label>
+                  <Input
+                    type="number"
+                    min="0.1"
+                    step="0.5"
+                    value={cleanupHours}
+                    onChange={(e) => setCleanupHours(e.target.value)}
+                    className="h-12 rounded-[1.1rem]"
+                  />
+                  <p className="text-xs leading-6 text-muted-foreground">{localText.cleanupHoursHint}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Label>{localText.cleanupDatetime}</Label>
+                  <Input
+                    type="datetime-local"
+                    value={cleanupAtInput}
+                    onChange={(e) => setCleanupAtInput(e.target.value)}
+                    className="h-12 rounded-[1.1rem]"
+                  />
+                  <p className="text-xs leading-6 text-muted-foreground">{localText.cleanupDatetimeHint}</p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-black/5 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <Button variant="outline" onClick={() => setStep(1)} className="h-12 px-6">
+            {t("common.back")}
+          </Button>
+          <Button disabled={!canProceed} onClick={() => setStep(3)} className="h-12 px-6">
+            {t("common.next")}
+          </Button>
+        </div>
+      </WizardFrame>
+    );
+  }
+
+  if (step === 3) {
     const handleDeploy = async () => {
       if (!token) {
         setError("Unauthorized");
@@ -450,6 +779,8 @@ export function SelfHostedWizard() {
       }
 
       setStatus("running");
+      setError(null);
+
       try {
         updateStep({ stepId: "provision", status: "running", message: t("selfhosted.step.provision") });
 
@@ -462,13 +793,13 @@ export function SelfHostedWizard() {
             ? { cleanupHours: cleanupHours ? Number(cleanupHours) : undefined }
             : { cleanupAt: cleanupAtInput ? new Date(cleanupAtInput).toISOString() : undefined }),
         };
-        if (isApi) {
+
+        if (deployMethod === "api") {
           Object.assign(body, { provider, apiKey, region, plan });
         } else {
           Object.assign(body, { serverIp, sshPort, sshPassword });
         }
 
-        // Call the real self-hosted deploy API
         const response = await fetch("/api/self-hosted", {
           method: "POST",
           headers: {
@@ -485,14 +816,12 @@ export function SelfHostedWizard() {
 
         const data = await response.json();
         const deployId = data.deployId;
-
-        // Poll for deployment status
         let attempts = 0;
-        const maxAttempts = 120; // 10 minutes at 5s intervals
+        const maxAttempts = 120;
 
         while (attempts < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 5000));
-          attempts++;
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          attempts += 1;
 
           const statusRes = await fetch(`/api/self-hosted/${deployId}`, {
             headers: { Authorization: `Bearer ${token}` },
@@ -515,7 +844,6 @@ export function SelfHostedWizard() {
             throw new Error(statusData.error || t("selfhosted.error.generic"));
           }
 
-          // Update progress based on deployment phase
           if (statusData.progress >= 33) {
             updateStep({ stepId: "provision", status: "success", message: t("selfhosted.step.provision.ready") });
           }
@@ -536,37 +864,188 @@ export function SelfHostedWizard() {
     };
 
     return (
-      <Card className="p-6 space-y-6">
-        <h2 className="text-lg font-semibold">{t("selfhosted.step3.title")}</h2>
+      <WizardFrame
+        eyebrow="Review"
+        title={t("selfhosted.step3.title")}
+        description={t("selfhosted.review.warning")}
+        stepLabel="3 / 3"
+        aside={(
+          <WizardAside
+            title={isZh ? "最终审阅" : "Final review"}
+            rows={[
+              { label: isZh ? "接入方式" : "Access", value: deployMethod === "api" ? t("selfhosted.method.api") : t("selfhosted.method.ssh") },
+              {
+                label: isZh ? "目标" : "Target",
+                value: deployMethod === "api" ? [providerInfo?.name, regionName, planInfo?.name].filter(Boolean).join(" / ") || "—" : serverIp || "—",
+              },
+              { label: t("selfhosted.review.protocol"), value: protocol ? t(`protocol.${protocol}`) : "—" },
+              { label: localText.cleanupReview, value: cleanupSummary },
+            ]}
+            footer={(
+              <div className="space-y-2">
+                {[
+                  isZh ? "部署会创建或接管一台真实服务器，并写入运行配置。" : "Deployment creates or takes over a real server and writes runtime configuration.",
+                  isZh ? "若使用云厂商 API，费用责任在你的账户下立即生效。" : "If you use a cloud API, charges begin under your account immediately.",
+                  isZh ? "确认后系统会按阶段执行，并把日志回传到当前页。" : "After confirmation, the system executes in phases and returns logs to this page.",
+                ].map((note) => (
+                  <div
+                    key={note}
+                    className="rounded-[1.25rem] border border-black/5 bg-white/75 px-4 py-3 text-sm leading-6 text-muted-foreground"
+                  >
+                    {note}
+                  </div>
+                ))}
+              </div>
+            )}
+          />
+        )}
+      >
+        <div className="space-y-6">
+          <section className="rounded-[1.75rem] border border-black/5 bg-white/72 p-5">
+            <div className="mb-4 text-sm font-semibold tracking-[-0.02em]">
+              {isZh ? "部署摘要" : "Deployment summary"}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {deployMethod === "api" ? (
+                <>
+                  <SummaryRow label={t("selfhosted.review.provider")} value={providerInfo?.name || "—"} />
+                  <SummaryRow label={t("selfhosted.review.region")} value={regionName || "—"} />
+                  <SummaryRow label={t("selfhosted.review.plan")} value={planInfo?.name || "—"} />
+                </>
+              ) : (
+                <>
+                  <SummaryRow label={t("selfhosted.serverIp.label")} value={serverIp || "—"} mono />
+                  <SummaryRow label={t("selfhosted.sshPort.label")} value={String(sshPort)} />
+                </>
+              )}
+              <SummaryRow
+                label={t("selfhosted.review.protocol")}
+                value={protocol ? t(`protocol.${protocol}`) : "—"}
+              />
+              <SummaryRow label={localText.cleanupReview} value={cleanupSummary} />
+            </div>
+          </section>
 
-        <div className="space-y-2 rounded-lg bg-muted/50 p-4 text-sm">
-          {isApi ? (
-            <>
-              <div className="flex justify-between"><span className="text-muted-foreground">{t("selfhosted.review.provider")}</span><span>{providerInfo?.name}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">{t("selfhosted.review.region")}</span><span>{regionName}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">{t("selfhosted.review.plan")}</span><span>{planInfo?.name}</span></div>
-            </>
-          ) : (
-            <>
-              <div className="flex justify-between"><span className="text-muted-foreground">{t("selfhosted.serverIp.label")}</span><span className="font-mono">{serverIp}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">{t("selfhosted.sshPort.label")}</span><span>{sshPort}</span></div>
-            </>
-          )}
-          <div className="flex justify-between"><span className="text-muted-foreground">{t("selfhosted.review.protocol")}</span><span>{protocol ? t(`protocol.${protocol}`) : ""}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">{localText.cleanupReview}</span><span>{cleanupSummary}</span></div>
+          <section className="rounded-[1.6rem] border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-800">
+            {t("selfhosted.review.warning")}
+          </section>
         </div>
 
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-          {t("selfhosted.review.warning")}
+        <div className="flex flex-col gap-3 border-t border-black/5 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <Button variant="outline" onClick={() => setStep(2)} className="h-12 px-6">
+            {t("common.back")}
+          </Button>
+          <Button onClick={handleDeploy} className="h-12 bg-green-600 px-6 hover:bg-green-700">
+            {t("selfhosted.review.deploy")}
+          </Button>
         </div>
-
-        <div className="flex justify-between">
-          <Button variant="outline" onClick={() => setStep(2)}>{t("common.back")}</Button>
-          <Button onClick={handleDeploy} className="bg-green-600 hover:bg-green-700">{t("selfhosted.review.deploy")}</Button>
-        </div>
-      </Card>
+      </WizardFrame>
     );
   }
 
   return null;
+}
+
+function WizardFrame({
+  eyebrow,
+  title,
+  description,
+  stepLabel,
+  children,
+  aside,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  stepLabel: string;
+  children: React.ReactNode;
+  aside: React.ReactNode;
+}) {
+  return (
+    <div className="animate-rise grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <Card className="space-y-7 p-6 md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="section-eyebrow">{eyebrow}</div>
+            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">{title}</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">{description}</p>
+          </div>
+          <div className="metric-pill self-start">{stepLabel}</div>
+        </div>
+        {children}
+      </Card>
+      <div className="space-y-4">{aside}</div>
+    </div>
+  );
+}
+
+function WizardAside({
+  title,
+  rows,
+  footer,
+}: {
+  title: string;
+  rows: Array<{ label: string; value: string }>;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <Card className="space-y-5 p-5">
+      <div>
+        <div className="section-eyebrow">Snapshot</div>
+        <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{title}</h3>
+      </div>
+      <div className="space-y-3">
+        {rows.map((row) => (
+          <SummaryRow key={row.label} label={row.label} value={row.value} />
+        ))}
+      </div>
+      {footer}
+    </Card>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[1.2rem] border border-black/5 bg-white/70 px-4 py-3">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className={`max-w-[60%] text-right text-sm ${mono ? "break-all font-mono" : "font-medium text-foreground"}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function StatusStep({
+  status,
+  label,
+  message,
+}: {
+  status: "pending" | "running" | "success" | "failed";
+  label: string;
+  message?: string;
+}) {
+  const marker =
+    status === "success"
+      ? "bg-green-500"
+      : status === "running"
+        ? "bg-primary"
+        : status === "failed"
+          ? "bg-red-500"
+          : "bg-black/10";
+
+  return (
+    <div className="flex items-center gap-3 rounded-[1.5rem] border border-black/5 bg-white/70 p-4 text-sm">
+      <span className={`h-2.5 w-2.5 rounded-full ${marker}`} />
+      <span className="flex-1 font-medium">{label}</span>
+      {message && <span className="text-xs text-muted-foreground">{message}</span>}
+    </div>
+  );
 }

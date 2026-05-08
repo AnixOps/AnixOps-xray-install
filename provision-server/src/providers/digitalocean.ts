@@ -47,7 +47,7 @@ export function createDOProvider(apiKey: string): CloudProvider {
   }
 
   return {
-    async createServer({ region, plan, sshKey, tag }): Promise<VPSInfo> {
+    async createServer({ region, plan, sshKey, tag, userData }): Promise<VPSInfo> {
       const body: Record<string, unknown> = {
         name: tag ? `anixops-${tag}` : `anixops-rental-${Date.now()}`,
         region,
@@ -59,6 +59,10 @@ export function createDOProvider(apiKey: string): CloudProvider {
       if (sshKey) {
         const sshKeyFp = await getOrCreateSSHKey(sshKey);
         body.ssh_keys = [sshKeyFp];
+      }
+
+      if (userData) {
+        body.user_data = userData;
       }
 
       const data = await request("/droplets", {

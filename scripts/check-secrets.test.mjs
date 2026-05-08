@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { isAllowedPlaceholder, scanFiles } = require("./check-secrets.js");
+const { isAllowedPlaceholder, listGitVisibleFiles, parseGitFileList, scanFiles } = require("./check-secrets.js");
 
 const tempDirs = [];
 
@@ -30,14 +30,28 @@ describe("secret scanner", () => {
     expect(isAllowedPlaceholder("sk_test_")).toBe(true);
   });
 
+  it("parses git ls-files output into a stable list", () => {
+    expect(parseGitFileList("a.txt\nb.txt\n")).toEqual(["a.txt", "b.txt"]);
+  });
+
+  it("lists git-visible files without throwing in the current repository", () => {
+    expect(Array.isArray(listGitVisibleFiles())).toBe(true);
+  });
+
   it("flags visible sensitive local filenames", () => {
     const file = writeTempFile("ssh.txt", "ip: 127.0.0.1\npassword: secret\n");
 
     expect(scanFiles([file])).toContain(`${file}: sensitive local file is visible to git`);
   });
 
-  it("flags the unified local secret bundle filename", () => {
-    const file = writeTempFile(".local-secrets.env", "SSH_PASSWORD=secret\n");
+  it("flags .local-secrets.env as a sensitive local file", () => {
+    const file = writeTempFile(".local-secrets.env", "VULTR_API_KEY=secret\n");
+
+    expect(scanFiles([file])).toContain(`${file}: sensitive local file is visible to git`);
+  });
+
+  it("flags apikey.txt as a sensitive local file", () => {
+    const file = writeTempFile("apikey.txt", "secret-token\n");
 
     expect(scanFiles([file])).toContain(`${file}: sensitive local file is visible to git`);
   });

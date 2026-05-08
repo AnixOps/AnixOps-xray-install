@@ -9,25 +9,47 @@ const MAX_FILE_BYTES = 1024 * 1024;
 const SENSITIVE_BASENAMES = new Set([
   ".env",
   ".env.local",
-  ".env.selfhosted",
   ".local-secrets.env",
+  ".env.selfhosted",
   "apikey.txt",
   "ssh.txt",
   "mail.txt",
   "id_rsa",
   "id_ed25519",
-  "local-secrets.env",
 ]);
 
 const SECRET_KEY_PATTERN = /(?:SECRET|TOKEN|PASSWORD|PASS|API_KEY|PRIVATE_KEY|WEBHOOK_SECRET|SMTP_PASS)\s*[:=]\s*["']?([^"'\s#]+)?/i;
 const PRIVATE_KEY_PATTERN = /-----BEGIN (?:OPENSSH|RSA|EC|DSA|PRIVATE) PRIVATE KEY-----/;
 const HIGH_CONFIDENCE_TOKEN_PATTERN = /\b(?:sk_live_[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16})\b/;
 
+function parseGitFileList(output) {
+  return String(output || "")
+    .split(/\r?\n/)
+    .filter(Boolean);
+}
+
+function readExecOutput(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString("utf8");
+  }
+  return "";
+}
+
 function listGitVisibleFiles() {
-  const output = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-    encoding: "utf8",
-  });
-  return output.split(/\r?\n/).filter(Boolean);
+  try {
+    return parseGitFileList(execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+      encoding: "utf8",
+    }));
+  } catch (error) {
+    const output = readExecOutput(error && typeof error === "object" ? error.stdout : "");
+    if ((error?.status === 0 || error?.code === "EPERM") && output.trim()) {
+      return parseGitFileList(output);
+    }
+    throw error;
+  }
 }
 
 function isAllowedPlaceholder(value) {
@@ -147,5 +169,7 @@ if (require.main === module) {
 
 module.exports = {
   isAllowedPlaceholder,
+  listGitVisibleFiles,
+  parseGitFileList,
   scanFiles,
 };

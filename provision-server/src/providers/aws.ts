@@ -18,7 +18,7 @@ export function createAWSProvider(region: string, accessKeyId: string, secretAcc
   });
 
   return {
-    async createServer({ region: _region, plan, sshKey, tag }): Promise<VPSInfo> {
+    async createServer({ region: _region, plan, sshKey, tag, userData }): Promise<VPSInfo> {
       const amiId = UBUNTU_AMI[region] || UBUNTU_AMI["us-east-1"];
 
       const params: RunInstancesCommandInput = {
@@ -39,6 +39,10 @@ export function createAWSProvider(region: string, accessKeyId: string, secretAcc
         KeyName: sshKey,
         SecurityGroupIds: [process.env.AWS_SECURITY_GROUP_ID || ""],
       };
+
+      if (userData) {
+        params.UserData = Buffer.from(userData).toString("base64");
+      }
 
       if (!params.SecurityGroupIds?.[0]) {
         throw new Error("AWS_SECURITY_GROUP_ID is required (security group must allow inbound 22/TCP, 443/TCP, 443/UDP)");

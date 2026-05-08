@@ -18,7 +18,7 @@
 |---|-------|--------|
 | 5 | Command injection in scripts | **FIXED** — input validation (regex) for port, path, domain, password |
 | 6 | SSH without key auth | **FIXED** — auto-generate ed25519 key pair, register with Vultr API, use for all SSH |
-| 7 | Open CORS | **FIXED** — `ALLOWED_ORIGINS` env var, default `localhost:3000` |
+| 7 | Open CORS | **FIXED** — `ALLOWED_ORIGINS` env var, default `localhost:30000` |
 | 8 | Client-side API key | **FIXED** — server-side API route `/api/self-hosted` handles all cloud API calls |
 | 9 | Hardcoded shortId | **FIXED** — `crypto.randomBytes(4).toString("hex")` |
 | 10 | Insecure TLS default | **MONITORED** — self-signed cert intentional for rental mode |

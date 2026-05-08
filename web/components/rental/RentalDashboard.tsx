@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Badge, useToast } from "@/components/ui";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { RENTAL_PLANS } from "@/lib/deploy/types";
 import { workerFetch } from "@/lib/api/client";
-import { generateVlessRealityConfig, generateHysteria2Config } from "@/lib/config/generator";
+import { generateHysteria2Config, generateVlessRealityConfig } from "@/lib/config/generator";
 
 interface RentalData {
   id: string;
@@ -26,7 +26,13 @@ interface ClientConfig {
   shadowrocket: string;
 }
 
-export function RentalDashboard({ token, initialRental }: { token: string; initialRental: RentalData }) {
+export function RentalDashboard({
+  token,
+  initialRental,
+}: {
+  token: string;
+  initialRental: RentalData;
+}) {
   const [rental, setRental] = useState<RentalData>(initialRental);
   const [config, setConfig] = useState<ClientConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -37,11 +43,11 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
   const [renewPlan, setRenewPlan] = useState<(typeof RENTAL_PLANS)[number] | null>(null);
   const [subscription, setSubscription] = useState<string | null>(null);
   const [subscriptionFormat, setSubscriptionFormat] = useState<"universal" | "raw">("universal");
-  const { t, tPlan } = useLocaleStore();
+  const { t, tPlan, locale } = useLocaleStore();
   const { showToast } = useToast();
   const router = useRouter();
+  const isZh = locale === "zh";
 
-  // Fetch rental config when rental is active
   useEffect(() => {
     if (rental.status === "active" && !config) {
       workerFetch(`/api/rental/${rental.id}/config`, {
@@ -53,17 +59,16 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
             setConfigError(data.error);
             return;
           }
-          // Convert API config to client format
-          const generated = rental.protocol === "vless-reality"
-            ? generateVlessRealityConfig(data)
-            : generateHysteria2Config(data);
+          const generated =
+            rental.protocol === "vless-reality"
+              ? generateVlessRealityConfig(data)
+              : generateHysteria2Config(data);
           setConfig(generated);
         })
         .catch((e) => setConfigError(e instanceof Error ? e.message : "Failed to load config"));
     }
-  }, [rental.id, rental.status, rental.protocol, token]);
+  }, [config, rental.id, rental.protocol, rental.status, token]);
 
-  // Countdown timer
   useEffect(() => {
     if (timeLeft <= 0) return;
     const timer = setInterval(() => {
@@ -72,7 +77,6 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
     return () => clearInterval(timer);
   }, [timeLeft]);
 
-  // Poll rental status every 30s
   const pollStatus = useCallback(async () => {
     try {
       const res = await workerFetch(`/api/rental/${rental.id}`, {
@@ -81,7 +85,9 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
       const data = await res.json();
       setRental(data);
       setTimeLeft(data.remainingMinutes * 60);
-    } catch {}
+    } catch {
+      // Best-effort polling only.
+    }
   }, [rental.id, token]);
 
   useEffect(() => {
@@ -92,8 +98,20 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
   const hours = Math.floor(timeLeft / 3600);
   const minutes = Math.floor((timeLeft % 3600) / 60);
   const seconds = timeLeft % 60;
-  const totalSeconds = rental.duration_hours * 3600;
+  const totalSeconds = Math.max(1, rental.duration_hours * 3600);
   const progress = ((totalSeconds - timeLeft) / totalSeconds) * 100;
+
+  const currentClientConfig = useMemo(() => {
+    if (!config) return "";
+    return config[selectedClient] || "";
+  }, [config, selectedClient]);
+
+  const clientLabels = {
+    clashMeta: t("client.clashMeta"),
+    singbox: t("client.singbox"),
+    v2rayN: t("client.v2rayN"),
+    shadowrocket: t("client.shadowrocket"),
+  };
 
   const handlePause = async () => {
     setLoading(true);
@@ -151,7 +169,6 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
     if (!renewPlan) return;
     setLoading(true);
     try {
-      // Create Stripe checkout session for renewal
       const res = await workerFetch(`/api/payment/renew`, {
         method: "POST",
         headers: {
@@ -168,7 +185,7 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
         showToast(data.error, "error");
       } else if (data.url) {
         window.location.href = data.url;
-        return; // Don't reset loading — user is redirected
+        return;
       }
     } catch {
       showToast(t("rental.deployFailed"), "error");
@@ -203,202 +220,359 @@ export function RentalDashboard({ token, initialRental }: { token: string; initi
     }
   };
 
-  const clientLabels = {
-    clashMeta: t("client.clashMeta"),
-    singbox: t("client.singbox"),
-    v2rayN: t("client.v2rayN"),
-    shadowrocket: t("client.shadowrocket"),
-  };
-
   if (rental.status === "destroyed") {
     return (
-      <div className="space-y-6">
-        <Card className="p-6 text-center">
-          <div className="text-2xl font-bold text-muted-foreground">{t("status.destroyed")}</div>
-          <div className="text-sm text-muted-foreground mt-2">{t("privacy.desc2")}</div>
+      <div className="animate-rise mx-auto max-w-3xl space-y-6">
+        <Card className="p-8 text-center">
+          <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-xl font-semibold text-muted-foreground">
+            AX
+          </div>
+          <div className="text-2xl font-semibold tracking-[-0.035em] text-muted-foreground">
+            {t("status.destroyed")}
+          </div>
+          <div className="mt-2 text-sm text-muted-foreground">{t("privacy.desc2")}</div>
         </Card>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Timer Card */}
-      <Card className="p-6 text-center">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-sm text-muted-foreground">{t("status.remaining")}</div>
-          <Badge variant={timeLeft < 300 ? "destructive" : "default"}>
-            {rental.status === "paused" ? t("status.paused") : rental.status === "active" ? t("status.active") : rental.status}
-          </Badge>
-        </div>
-        <div className="text-5xl font-mono font-bold tabular-nums">
-          {String(hours).padStart(2, "0")}:{String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
-        </div>
-        <div className="mt-3">
-          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-            <div
-              className={`h-full transition-all duration-300 ${timeLeft < 300 ? "bg-red-500" : "bg-primary"}`}
-              style={{ width: `${100 - progress}%` }}
-            />
-          </div>
-        </div>
-        {timeLeft < 300 && timeLeft > 0 && (
-          <div className="mt-2 text-sm text-red-500 font-medium">{t("rental.expiringSoon")}</div>
-        )}
-      </Card>
+    <div className="animate-rise mx-auto max-w-6xl space-y-5">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-5">
+          <Card className="relative overflow-hidden bg-slate-950 p-6 text-white shadow-[0_30px_80px_rgba(15,23,42,0.24)] md:p-8">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(70,153,255,0.34),transparent_30%),radial-gradient(circle_at_85%_70%,rgba(255,176,99,0.18),transparent_34%)]" />
+            <div className="relative space-y-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="section-eyebrow text-white/50">{isZh ? "Active rental" : "Active rental"}</div>
+                  <h2 className="mt-3 text-3xl font-semibold tracking-[-0.05em] md:text-4xl">
+                    {rental.protocol === "vless-reality" ? t("protocol.vless") : t("protocol.hysteria2")}
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-white/72">
+                    {isZh
+                      ? "计时、导出、续费与销毁都在同一处完成，不需要跳出当前工作流。"
+                      : "Timing, export, renew, and destroy stay in one place so you never have to leave the active workflow."}
+                  </p>
+                </div>
+                <Badge
+                  variant={timeLeft < 300 ? "destructive" : "outline"}
+                  className="self-start border-white/20 bg-white/10 px-3 py-1 text-white md:self-auto"
+                >
+                  {rental.status === "paused"
+                    ? t("status.paused")
+                    : rental.status === "active"
+                      ? t("status.active")
+                      : rental.status}
+                </Badge>
+              </div>
 
-      {/* Config Card */}
-      {config && (
-        <Card className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">{t("status.config")}</h2>
-            <Badge>{rental.protocol === "vless-reality" ? t("protocol.vless") : t("protocol.hysteria2")}</Badge>
-          </div>
+              <div className="rounded-[1.9rem] border border-white/12 bg-white/10 p-5 backdrop-blur-xl">
+                <div className="text-xs uppercase tracking-[0.24em] text-white/45">{t("status.remaining")}</div>
+                <div className="mt-3 font-mono text-6xl font-semibold tracking-[-0.075em] tabular-nums md:text-7xl">
+                  {String(hours).padStart(2, "0")}:{String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
+                </div>
+                <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${timeLeft < 300 ? "bg-red-500" : "bg-white"}`}
+                    style={{ width: `${100 - progress}%` }}
+                  />
+                </div>
+                {timeLeft < 300 && timeLeft > 0 && (
+                  <div className="mt-3 text-sm font-medium text-red-200">{t("rental.expiringSoon")}</div>
+                )}
+              </div>
 
-          {/* Client tabs */}
-          <div className="flex gap-2">
-            {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
-              <button
-                key={key}
-                className={`px-3 py-1 text-xs rounded-full border transition ${
-                  selectedClient === key ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                }`}
-                onClick={() => setSelectedClient(key)}
-              >
-                {clientLabels[key]}
-              </button>
-            ))}
-          </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <PreviewMetric label={t("rental.protocol")} value={rental.protocol} />
+                <PreviewMetric label="IP" value={rental.ip || "Private endpoint"} />
+                <PreviewMetric label={t("rental.duration")} value={`${rental.duration_hours}h`} />
+              </div>
+            </div>
+          </Card>
 
-          <div className="rounded-lg bg-muted/50 p-4 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-auto">
-            {selectedClient === "clashMeta" && config.clashMeta}
-            {selectedClient === "singbox" && config.singbox}
-            {selectedClient === "v2rayN" && config.v2rayN}
-            {selectedClient === "shadowrocket" && config.shadowrocket}
-          </div>
+          {config && (
+            <Card className="space-y-5 p-6 md:p-8">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="section-eyebrow">{t("status.config")}</div>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+                    {isZh ? "客户端导出" : "Client exports"}
+                  </h2>
+                </div>
+                <Badge className="self-start px-3 py-1 md:self-auto">
+                  {rental.ip || "Private endpoint"}
+                </Badge>
+              </div>
 
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              const text = config[selectedClient] || "";
-              navigator.clipboard?.writeText(text);
-            }}
-          >
-            {t("common.copy")}
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleLoadSubscription("universal")}
-          >
-            {t("subscription.title")}
-          </Button>
-          {subscription && (
-            <div className="space-y-3 rounded-lg bg-muted/50 p-4">
               <div className="flex flex-wrap gap-2">
-                <Button variant={subscriptionFormat === "universal" ? "default" : "outline"} size="sm" onClick={() => handleLoadSubscription("universal")}>
-                  {t("subscription.format.universal")}
-                </Button>
-                <Button variant={subscriptionFormat === "raw" ? "default" : "outline"} size="sm" onClick={() => handleLoadSubscription("raw")}>
-                  {t("subscription.format.raw")}
-                </Button>
+                {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
+                  <button
+                    key={key}
+                    className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
+                      selectedClient === key
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-black/10 bg-white/70 hover:bg-white"
+                    }`}
+                    onClick={() => setSelectedClient(key)}
+                  >
+                    {clientLabels[key]}
+                  </button>
+                ))}
+              </div>
+
+              <div className="code-block max-h-72 overflow-auto whitespace-pre-wrap">
+                {currentClientConfig}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Button
                   variant="outline"
-                  size="sm"
                   onClick={() => {
-                    navigator.clipboard?.writeText(subscription);
+                    navigator.clipboard?.writeText(currentClientConfig);
                     showToast(t("common.copied"), "success");
                   }}
                 >
-                  {t("subscription.copy")}
+                  {t("common.copy")}
+                </Button>
+                <Button variant="outline" onClick={() => handleLoadSubscription("universal")}>
+                  {t("subscription.title")}
                 </Button>
               </div>
-              <div className="font-mono text-xs break-all">{subscription}</div>
-            </div>
+
+              {subscription && (
+                <div className="space-y-3 rounded-[1.6rem] border border-black/5 bg-white/70 p-4">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant={subscriptionFormat === "universal" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handleLoadSubscription("universal")}
+                    >
+                      {t("subscription.format.universal")}
+                    </Button>
+                    <Button
+                      variant={subscriptionFormat === "raw" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handleLoadSubscription("raw")}
+                    >
+                      {t("subscription.format.raw")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(subscription);
+                        showToast(t("common.copied"), "success");
+                      }}
+                    >
+                      {t("subscription.copy")}
+                    </Button>
+                  </div>
+                  <div className="code-block break-all">{subscription}</div>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
-      )}
 
-      {!config && rental.status === "active" && !configError && (
-        <Card className="p-6 text-center">
-          <div className="text-sm text-muted-foreground">{t("rental.loadingConfig")}</div>
-        </Card>
-      )}
+          {!config && rental.status === "active" && !configError && (
+            <Card className="p-6 text-center">
+              <div className="text-sm text-muted-foreground">{t("rental.loadingConfig")}</div>
+            </Card>
+          )}
 
-      {configError && rental.status === "active" && (
-        <Card className="p-6 text-center">
-          <div className="text-sm text-red-500">{configError}</div>
-          <Button variant="outline" className="mt-3" onClick={() => { setConfigError(null); setConfig(null); }}>
-            {t("common.retry")}
-          </Button>
-        </Card>
-      )}
+          {configError && rental.status === "active" && (
+            <Card className="p-6 text-center">
+              <div className="text-sm text-red-500">{configError}</div>
+              <Button
+                variant="outline"
+                className="mt-3"
+                onClick={() => {
+                  setConfigError(null);
+                  setConfig(null);
+                }}
+              >
+                {t("common.retry")}
+              </Button>
+            </Card>
+          )}
+        </div>
 
-      {/* Control Buttons */}
-      <div className="grid grid-cols-3 gap-3">
-        {rental.status === "active" ? (
-          <Button variant="outline" className="h-20 flex-col space-y-1" onClick={handlePause} disabled={loading}>
-            <span className="text-lg">⏸</span>
-            <span className="text-xs">{t("status.pause")}</span>
-          </Button>
-        ) : rental.status === "paused" ? (
-          <Button variant="outline" className="h-20 flex-col space-y-1" onClick={handleResume} disabled={loading}>
-            <span className="text-lg">▶</span>
-            <span className="text-xs">{t("status.resume")}</span>
-          </Button>
-        ) : (
-          <div />
-        )}
-        <Button variant="outline" className="h-20 flex-col space-y-1" onClick={() => setShowRenew(true)} disabled={loading}>
-          <span className="text-lg">🔄</span>
-          <span className="text-xs">{t("rental.renew")}</span>
-        </Button>
-        <Button
-          variant="outline"
-          className="h-20 flex-col space-y-1 border-red-200 text-red-600 hover:bg-red-50"
-          onClick={handleDestroy}
-          disabled={loading}
-        >
-          <span className="text-lg">🔥</span>
-          <span className="text-xs">{t("status.destroy")}</span>
-        </Button>
+        <div className="space-y-4">
+          <Card className="space-y-5 p-5">
+            <div>
+              <div className="section-eyebrow">{isZh ? "Session snapshot" : "Session snapshot"}</div>
+              <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+                {isZh ? "运行状态一览" : "Everything important at a glance"}
+              </h3>
+            </div>
+            <div className="space-y-3">
+              <SummaryRow label="ID" value={rental.id} mono />
+              <SummaryRow label={t("status.remaining")} value={`${Math.ceil(timeLeft / 60)}m`} />
+              <SummaryRow label={t("rental.duration")} value={`${rental.duration_hours}h`} />
+              <SummaryRow label={t("status.active")} value={rental.status} />
+            </div>
+          </Card>
+
+          <Card className="space-y-4 p-5">
+            <div>
+              <div className="section-eyebrow">{isZh ? "Controls" : "Controls"}</div>
+              <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+                {isZh ? "直接操作当前节点" : "Operate the current node directly"}
+              </h3>
+            </div>
+
+            <div className="space-y-3">
+              {rental.status === "active" ? (
+                <ActionButton
+                  title={t("status.pause")}
+                  body={isZh ? "临时停止节点运行，但保留当前会话。" : "Temporarily stop the node while keeping the current session."}
+                  onClick={handlePause}
+                  disabled={loading}
+                />
+              ) : rental.status === "paused" ? (
+                <ActionButton
+                  title={t("status.resume")}
+                  body={isZh ? "恢复节点并继续使用剩余时长。" : "Resume the node and continue from the remaining time."}
+                  onClick={handleResume}
+                  disabled={loading}
+                />
+              ) : null}
+
+              <ActionButton
+                title={t("rental.renew")}
+                body={isZh ? "追加时长并延续当前专属节点。" : "Extend runtime and keep working on the current exclusive node."}
+                onClick={() => setShowRenew(true)}
+                disabled={loading}
+              />
+
+              <ActionButton
+                title={t("status.destroy")}
+                body={isZh ? "立即结束并清理当前租用状态。" : "End the session immediately and clean up the current rental."}
+                onClick={handleDestroy}
+                disabled={loading}
+                destructive
+              />
+            </div>
+          </Card>
+
+          <Card className="space-y-3 p-5 text-sm leading-6 text-muted-foreground">
+            <div className="font-semibold text-foreground">{t("privacy.title")}</div>
+            <div>{t("privacy.desc1")}</div>
+            <div>{t("privacy.desc2")}</div>
+            <button className="text-primary hover:underline" onClick={() => router.push("/payments")}>
+              {t("payment.history")} -&gt;
+            </button>
+          </Card>
+        </div>
       </div>
 
-      {/* Renew Modal */}
       {showRenew && (
-        <Card className="p-6 space-y-4">
-          <h2 className="text-lg font-semibold">{t("rental.renew")}</h2>
-          <div className="grid grid-cols-2 gap-3">
+        <Card className="space-y-5 p-6 md:p-8">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="section-eyebrow">{t("rental.renew")}</div>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+                {t("rental.renew.selectDuration")}
+              </h2>
+            </div>
+            <Badge variant="outline" className="self-start px-3 py-1 md:self-auto">
+              {rental.protocol}
+            </Badge>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
             {RENTAL_PLANS.map((plan) => (
-              <button key={plan.id} onClick={() => setRenewPlan(plan)}
-                className={`rounded-lg border-2 p-4 text-center transition-all ${renewPlan?.id === plan.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+              <button
+                key={plan.id}
+                onClick={() => setRenewPlan(plan)}
+                className={`choice-card min-h-[150px] text-center ${renewPlan?.id === plan.id ? "choice-card-active" : ""}`}
               >
-                <div className="text-lg font-semibold">{tPlan(plan.id)}</div>
-                <div className="mt-1 text-sm text-muted-foreground">${plan.totalPrice.toFixed(2)}</div>
+                <div className="text-lg font-semibold tracking-[-0.025em]">{tPlan(plan.id)}</div>
+                <div className="mt-3 text-2xl font-semibold text-primary">${plan.totalPrice.toFixed(2)}</div>
+                <div className="mt-2 text-xs text-muted-foreground">${plan.pricePerHour}/{t("time.hour")}</div>
               </button>
             ))}
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => { setShowRenew(false); setRenewPlan(null); }}>{t("common.cancel")}</Button>
+
+          <div className="flex flex-col gap-3 border-t border-black/5 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowRenew(false);
+                setRenewPlan(null);
+              }}
+            >
+              {t("common.cancel")}
+            </Button>
             <Button disabled={!renewPlan || loading} onClick={handleRenew}>
-              {loading ? t("common.processing") : `${t("common.confirm")} · $${renewPlan?.totalPrice.toFixed(2) ?? "0.00"}`}
+              {loading
+                ? t("common.processing")
+                : `${t("common.confirm")} $${renewPlan?.totalPrice.toFixed(2) ?? "0.00"}`}
             </Button>
           </div>
         </Card>
       )}
+    </div>
+  );
+}
 
-      {/* Privacy notice */}
-      <div className="rounded-lg border border-border/40 bg-muted/30 p-4 text-xs text-muted-foreground space-y-1">
-        <div className="font-semibold text-foreground">{t("privacy.title")}</div>
-        <div>{t("privacy.desc1")}</div>
-        <div>{t("privacy.desc2")}</div>
-        <div className="pt-1">
-          <button className="text-primary hover:underline" onClick={() => router.push("/payments")}>
-            {t("payment.history")} →
-          </button>
+function PreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.35rem] border border-white/10 bg-white/10 p-4 backdrop-blur-xl">
+      <div className="text-[11px] uppercase tracking-[0.22em] text-white/44">{label}</div>
+      <div className="mt-2 text-sm font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[1.2rem] border border-black/5 bg-white/70 px-4 py-3">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className={`max-w-[65%] text-right text-sm ${mono ? "break-all font-mono" : "font-medium text-foreground"}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ActionButton({
+  title,
+  body,
+  onClick,
+  disabled,
+  destructive = false,
+}: {
+  title: string;
+  body: string;
+  onClick: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`choice-card w-full text-left disabled:pointer-events-none disabled:opacity-50 ${
+        destructive ? "border-red-200 bg-red-50/70 hover:border-red-300 hover:bg-red-50" : ""
+      }`}
+    >
+      <div className="space-y-2">
+        <div className={`text-base font-semibold tracking-[-0.02em] ${destructive ? "text-red-600" : ""}`}>
+          {title}
+        </div>
+        <div className={`text-sm leading-6 ${destructive ? "text-red-500/90" : "text-muted-foreground"}`}>
+          {body}
         </div>
       </div>
-    </div>
+    </button>
   );
 }

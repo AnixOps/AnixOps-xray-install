@@ -8,7 +8,7 @@
 npm install
 cp .env.example .env.local  # Fill in your cloud provider API key
 npm run dev
-# Visit http://localhost:3000, select "Self-hosted" mode
+# Visit http://localhost:30000, select "Self-hosted" mode
 ```
 
 ### Deploy to Cloudflare Pages / 部署到 Pages
@@ -71,6 +71,17 @@ Supported cloud providers (set `CLOUD_PROVIDER` in `.env`):
 - `vultr` — requires `VULTR_API_KEY`
 - `digitalocean` — requires `DIGITALOCEAN_TOKEN`
 - `aws` — requires `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_SECURITY_GROUP_ID`
+
+Current default and active provider is `vultr`. `digitalocean` and `aws` stay available as retained adapters and do not require business-layer API changes when switching.
+
+For the self-hosted helper scripts in the repo root:
+
+- `npm run selfhosted:init-env`
+- `npm run selfhosted:doctor`
+- `npm run selfhosted:deploy`
+
+they will automatically read ignored local secret files from `.local-secrets.env`, plus `apikey.txt` / `mail.txt` when present.
+`npm run provision:check-env` follows the same rule by default; use `--no-local-overrides` only when you want to validate the example env shape in isolation.
 
 ### 2. Configure Cloudflare Worker / 配置 Worker
 

@@ -36,11 +36,44 @@ describe("provision server health check logic", () => {
   it("throws at startup when required env vars are missing", async () => {
     process.env.CLOUD_PROVIDER = "vultr";
     process.env.SERVER_TOKEN = "test-token-at-least-32-chars-long";
-    // VULTR_API_KEY intentionally missing — server throws at startup
+    // VULTR_API_KEY intentionally missing; server throws at startup.
 
     await expect(import("../server")).rejects.toThrow(
-      "Missing required environment variable: VULTR_API_KEY"
+      "Missing or placeholder environment variable: VULTR_API_KEY"
     );
+  });
+
+  it("throws at startup when provider credentials are placeholders", async () => {
+    process.env.CLOUD_PROVIDER = "vultr";
+    process.env.SERVER_TOKEN = "test-token-at-least-32-chars-long";
+    process.env.VULTR_API_KEY = "your-vultr-api-key";
+
+    await expect(import("../server")).rejects.toThrow(
+      "Missing or placeholder environment variable: VULTR_API_KEY"
+    );
+  });
+
+  it("throws at startup for unsupported providers", async () => {
+    process.env.CLOUD_PROVIDER = "linode";
+    process.env.SERVER_TOKEN = "test-token-at-least-32-chars-long";
+
+    await expect(import("../server")).rejects.toThrow(
+      "Unsupported CLOUD_PROVIDER: linode"
+    );
+  });
+
+  it("accepts legacy DO_API_TOKEN for digitalocean startup validation", async () => {
+    process.env.CLOUD_PROVIDER = "digitalocean";
+    process.env.SERVER_TOKEN = "test-token-at-least-32-chars-long";
+    process.env.DO_API_TOKEN = "do-legacy-token";
+
+    const { server } = await import("../server");
+    const response = await server.inject({
+      method: "GET",
+      url: "/health",
+    });
+
+    expect(response.statusCode).toBe(200);
   });
 
   it("returns 401 without auth token on provision endpoint", async () => {

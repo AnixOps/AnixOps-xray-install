@@ -20,6 +20,17 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
+function createToastId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const random = globalThis.crypto?.getRandomValues
+    ? Array.from(globalThis.crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(16)).join("")
+    : Math.random().toString(16).slice(2);
+  return `toast-${Date.now().toString(16)}-${random}`;
+}
+
 export function useToast() {
   const context = useContext(ToastContext);
   if (!context) {
@@ -36,7 +47,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const showToast = useCallback((message: string, type: ToastType = "info", duration = 5000) => {
-    const id = crypto.randomUUID();
+    const id = createToastId();
     const toast: Toast = { id, message, type, duration };
     setToasts((prev) => [...prev, toast]);
 
@@ -55,7 +66,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
 function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div className="pointer-events-none fixed inset-x-4 top-4 z-50 flex flex-col items-stretch gap-2 md:right-4 md:left-auto md:w-[380px]">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} />
       ))}
@@ -65,37 +76,42 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const icons: Record<ToastType, string> = {
-    success: "✓",
-    error: "✕",
-    warning: "⚠",
-    info: "ℹ",
+    success: "OK",
+    error: "!",
+    warning: "!",
+    info: "i",
   };
 
   const styles: Record<ToastType, string> = {
-    success: "bg-green-50 border-green-200 text-green-800",
-    error: "bg-red-50 border-red-200 text-red-800",
-    warning: "bg-yellow-50 border-yellow-200 text-yellow-800",
-    info: "bg-blue-50 border-blue-200 text-blue-800",
+    success: "border-green-200/80 text-green-800 before:bg-green-500",
+    error: "border-red-200/80 text-red-800 before:bg-red-500",
+    warning: "border-amber-200/80 text-amber-800 before:bg-amber-500",
+    info: "border-blue-200/80 text-blue-800 before:bg-blue-500",
   };
 
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg min-w-[280px] max-w-md animate-in slide-in-from-bottom-2",
+        "pointer-events-auto animate-rise relative flex min-w-[280px] max-w-md items-start gap-3 overflow-hidden rounded-[1.4rem] border bg-white/92 px-4 py-3 shadow-[0_18px_48px_rgba(18,30,49,0.14)] backdrop-blur-2xl before:absolute before:inset-y-0 before:left-0 before:w-1",
         styles[toast.type]
       )}
       role="alert"
     >
-      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/50 text-sm font-bold">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/80 text-[10px] font-bold shadow-sm">
         {icons[toast.type]}
       </span>
-      <p className="flex-1 text-sm font-medium">{toast.message}</p>
+      <div className="flex-1">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          {toast.type}
+        </div>
+        <p className="mt-1 text-sm font-medium leading-6">{toast.message}</p>
+      </div>
       <button
         onClick={() => onDismiss(toast.id)}
-        className="rounded p-1 hover:bg-black/5 transition-colors"
+        className="rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-black/5"
         aria-label="Dismiss"
       >
-        ×
+        x
       </button>
     </div>
   );

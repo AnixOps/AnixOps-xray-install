@@ -1,19 +1,10 @@
-import { NextResponse } from "next/server";
-
-const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_WORKER_URL || "http://127.0.0.1:8787";
+import { proxyAuthRequest } from "../proxy";
 
 export async function POST(request: Request) {
   const body = await request.text();
-  const res = await fetch(`${API_URL}/api/auth/request-link`, {
+  return proxyAuthRequest("/api/auth/request-link", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
-    cache: "no-store",
-  });
-
-  const text = await res.text();
-  return new NextResponse(text, {
-    status: res.status,
-    headers: { "Content-Type": res.headers.get("Content-Type") || "application/json" },
   });
 }

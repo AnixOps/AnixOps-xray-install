@@ -62,7 +62,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 // CORS middleware — reads ALLOWED_ORIGINS from Cloudflare bindings (not process.env)
 app.use("*", async (c, next) => {
-  const origins = c.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:3000"];
+  const origins = c.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:30000"];
   const corsHandler = cors({ origin: origins });
   return corsHandler(c, next);
 });

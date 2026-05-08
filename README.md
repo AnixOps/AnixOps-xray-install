@@ -22,6 +22,9 @@ Zero-knowledge node deployment platform. One-click provisioning for VLESS Realit
 
 Vultr (primary), DigitalOcean, AWS EC2 (free tier eligible).
 
+Current self-hosted default and active provider: `Vultr`.
+DigitalOcean and AWS adapters remain supported and can be switched on without changing the business-layer APIs.
+
 ## Tech Stack
 
 - **Frontend**: Next.js SSG → Cloudflare Pages

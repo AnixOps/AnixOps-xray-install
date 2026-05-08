@@ -1,21 +1,4 @@
-import { NextResponse } from "next/server";
-import { buildNoStoreHeaders } from "../../shared";
-
-const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_WORKER_URL || "http://127.0.0.1:8787";
-
-function buildHeaders(request: Request) {
-  const headers = new Headers();
-  const auth = request.headers.get("Authorization");
-  if (auth) {
-    headers.set("Authorization", auth);
-  }
-  const apiSecret = request.headers.get("X-API-Secret");
-  if (apiSecret) {
-    headers.set("X-API-Secret", apiSecret);
-  }
-  headers.set("Content-Type", "application/json");
-  return headers;
-}
+import { buildAdminHeaders, proxyAdminRequest } from "../../shared";
 
 export async function PATCH(
   request: Request,
@@ -23,17 +6,10 @@ export async function PATCH(
 ) {
   const { id } = await params;
   const body = await request.text();
-  const res = await fetch(`${API_URL}/api/admin/redeem-codes/${id}`, {
+  return proxyAdminRequest(`/api/admin/redeem-codes/${encodeURIComponent(id)}`, request, {
     method: "PATCH",
-    headers: buildHeaders(request),
+    headers: buildAdminHeaders(request, "application/json"),
     body,
-    cache: "no-store",
-  });
-
-  const text = await res.text();
-  return new NextResponse(text, {
-    status: res.status,
-    headers: buildNoStoreHeaders(res.headers.get("Content-Type") || "application/json"),
   });
 }
 
@@ -42,15 +18,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const res = await fetch(`${API_URL}/api/admin/redeem-codes/${id}`, {
+  return proxyAdminRequest(`/api/admin/redeem-codes/${encodeURIComponent(id)}`, request, {
     method: "DELETE",
-    headers: buildHeaders(request),
-    cache: "no-store",
-  });
-
-  const text = await res.text();
-  return new NextResponse(text, {
-    status: res.status,
-    headers: buildNoStoreHeaders(res.headers.get("Content-Type") || "application/json"),
   });
 }

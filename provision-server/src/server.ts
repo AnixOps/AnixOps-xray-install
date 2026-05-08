@@ -1,28 +1,65 @@
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
+import type { FastifyRequest, FastifyReply, preHandlerHookHandler } from "fastify";
 import { provisionNode } from "./provision.js";
 import { destroyNode } from "./destroy.js";
+import { ProvisionStageError, getErrorMessage } from "./stage-log.js";
+import { checkProviderAccess } from "./provider-check.js";
+import { collectComplianceStats } from "./compliance-stats.js";
 
-// Startup validation - fail fast if required env vars are missing
-const provider = process.env.CLOUD_PROVIDER || "vultr";
-const requiredKeys = ["SERVER_TOKEN"];
-if (provider === "vultr") requiredKeys.push("VULTR_API_KEY");
-if (provider === "digitalocean") requiredKeys.push("DIGITALOCEAN_TOKEN");
-if (provider === "aws") requiredKeys.push("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_GROUP_ID");
+const PROVIDER_REQUIRED_KEYS: Record<string, string[]> = {
+  vultr: ["VULTR_API_KEY"],
+  digitalocean: ["DIGITALOCEAN_TOKEN"],
+  aws: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_GROUP_ID"],
+};
 
-for (const key of requiredKeys) {
-  if (!process.env[key]) {
-    throw new Error(`Missing required environment variable: ${key}`);
+function getDigitaloceanToken(source: NodeJS.ProcessEnv = process.env) {
+  return source.DIGITALOCEAN_TOKEN || source.DO_API_TOKEN || "";
+}
+
+function isPlaceholderEnvValue(value: string | undefined): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  return (
+    normalized === "" ||
+    normalized.startsWith("change-me") ||
+    normalized.startsWith("your-") ||
+    normalized.endsWith("_")
+  );
+}
+
+function getRuntimeConfigIssues() {
+  const provider = (process.env.CLOUD_PROVIDER || "vultr").toLowerCase();
+  const providerKeys = PROVIDER_REQUIRED_KEYS[provider];
+  const issues: string[] = [];
+
+  if (!providerKeys) {
+    issues.push(`Unsupported CLOUD_PROVIDER: ${provider}`);
   }
+
+  for (const key of ["SERVER_TOKEN", ...(providerKeys || [])]) {
+    const value = key === "DIGITALOCEAN_TOKEN"
+      ? getDigitaloceanToken(process.env)
+      : process.env[key];
+    if (isPlaceholderEnvValue(value)) {
+      issues.push(`Missing or placeholder environment variable: ${key}`);
+    }
+  }
+
+  return { provider, issues };
+}
+
+// Startup validation - fail fast if required env vars are missing or placeholders.
+const runtimeConfig = getRuntimeConfigIssues();
+if (runtimeConfig.issues.length > 0) {
+  throw new Error(runtimeConfig.issues.join("; "));
 }
 
 const server = Fastify({ logger: true });
 
-// Rate limiting: 10 requests per minute per IP
+// Token-protected internal service. Keep a high guardrail without banning Docker health checks or BullMQ retries.
 await server.register(rateLimit, {
-  max: 10,
+  max: 300,
   timeWindow: "1 minute",
-  ban: 5, // ban after 5 violations
   keyGenerator: (req) => req.ip,
 });
 const TOKEN = process.env.SERVER_TOKEN;
@@ -31,7 +68,23 @@ if (!TOKEN) {
 }
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
-import type { FastifyRequest, FastifyReply, preHandlerHookHandler } from "fastify";
+function buildStageErrorResponse(error: unknown) {
+  if (error instanceof ProvisionStageError) {
+    return {
+      error: "Provision stage failed",
+      stage: error.stage,
+      detail: error.message,
+      stageLogs: error.logs,
+    };
+  }
+
+  return {
+    error: "Provision request failed",
+    stage: "unknown",
+    detail: getErrorMessage(error),
+    stageLogs: [],
+  };
+}
 
 // Auth middleware
 const authenticate: preHandlerHookHandler = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -43,7 +96,21 @@ const authenticate: preHandlerHookHandler = async (request: FastifyRequest, repl
 
 // Provision endpoint (called by Cloudflare Worker queue consumer)
 server.post("/api/provision", { preHandler: authenticate }, async (request, reply) => {
-  const { rentalId, protocol } = request.body as { rentalId: string; protocol: string };
+  const { rentalId, protocol, attemptId, attemptNo, maxAttempts, compliancePolicy } = request.body as {
+    rentalId: string;
+    protocol: string;
+    attemptId?: string;
+    attemptNo?: number;
+    maxAttempts?: number;
+    compliancePolicy?: {
+      profileId?: string;
+      version?: string;
+      mode?: "standard" | "restricted";
+      allowedPorts?: number[];
+      allowedCidrs?: string[];
+      blockedProtocols?: string[];
+    };
+  };
 
   if (!rentalId || !protocol) {
     return reply.code(400).send({ error: "Missing rentalId or protocol" });
@@ -55,41 +122,84 @@ server.post("/api/provision", { preHandler: authenticate }, async (request, repl
   }
 
   try {
-    const result = await provisionNode(rentalId, protocol as "vless-reality" | "hysteria2");
+    const result = await provisionNode(rentalId, protocol as "vless-reality" | "hysteria2", {
+      attemptId,
+      attemptNo: Number.isFinite(Number(attemptNo)) ? Number(attemptNo) : undefined,
+      maxAttempts: Number.isFinite(Number(maxAttempts)) ? Number(maxAttempts) : undefined,
+      compliancePolicy,
+    });
     return reply.send(result);
   } catch (error: unknown) {
     server.log.error(error);
-    return reply.code(500).send({ error: "Internal server error" });
+    return reply.code(500).send(buildStageErrorResponse(error));
   }
 });
 
 // Destroy endpoint
 server.post("/api/destroy", { preHandler: authenticate }, async (request, reply) => {
-  const { rentalId, vpsId, ip } = request.body as { rentalId: string; vpsId?: string; ip?: string };
+  const { rentalId, vpsId, ip, attemptId, reason } = request.body as {
+    rentalId: string;
+    vpsId?: string;
+    ip?: string;
+    attemptId?: string;
+    reason?: string;
+  };
 
   if (!rentalId) {
     return reply.code(400).send({ error: "Missing rentalId" });
   }
 
   try {
-    await destroyNode({ rentalId, vpsId, ip });
-    return reply.send({ status: "destroyed" });
+    const result = await destroyNode({ rentalId, vpsId, ip, attemptId, reason });
+    return reply.send(result);
   } catch (error: unknown) {
     server.log.error(error);
-    return reply.code(500).send({ error: "Internal server error" });
+    return reply.code(500).send(buildStageErrorResponse(error));
+  }
+});
+
+server.post("/api/provider-check", { preHandler: authenticate }, async (request, reply) => {
+  const result = await checkProviderAccess(request.body as { provider?: unknown; region?: unknown; plan?: unknown } | undefined);
+  return reply.code(result.ok ? 200 : 502).send(result);
+});
+
+server.post("/api/compliance-stats", { preHandler: authenticate }, async (request, reply) => {
+  const { rentalId, ip } = request.body as {
+    rentalId?: string;
+    ip?: string;
+  };
+
+  if (!rentalId || !ip) {
+    return reply.code(400).send({ error: "Missing rentalId or ip" });
+  }
+
+  try {
+    const stats = await collectComplianceStats(ip);
+    return reply.send({
+      rentalId,
+      ip,
+      ...stats,
+    });
+  } catch (error: unknown) {
+    server.log.error(error);
+    return reply.code(500).send({
+      error: "Compliance stats collection failed",
+      detail: getErrorMessage(error),
+    });
   }
 });
 
 // Health check
 server.get("/health", async () => {
-  const missing: string[] = [];
-  if (!process.env.SERVER_TOKEN) missing.push("SERVER_TOKEN");
-  if (provider === "vultr" && !process.env.VULTR_API_KEY) missing.push("VULTR_API_KEY");
-  if (provider === "digitalocean" && !process.env.DIGITALOCEAN_TOKEN) missing.push("DIGITALOCEAN_TOKEN");
-  if (provider === "aws" && (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY)) missing.push("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY");
+  const config = getRuntimeConfigIssues();
 
-  if (missing.length > 0) {
-    return { status: "degraded", missing, timestamp: new Date().toISOString() };
+  if (config.issues.length > 0) {
+    return {
+      status: "degraded",
+      provider: config.provider,
+      issues: config.issues,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   return { status: "ok", timestamp: new Date().toISOString() };
@@ -107,3 +217,4 @@ if (process.env.NODE_ENV !== "test") {
 }
 
 export { server };
+export { getRuntimeConfigIssues, isPlaceholderEnvValue };

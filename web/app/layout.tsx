@@ -5,15 +5,15 @@ import { ToastProvider } from "@/components/ui";
 import { AuthBootstrap } from "@/components/auth/AuthBootstrap";
 
 export const metadata: Metadata = {
-  title: "AnixOps - One-Click Node Deployment",
-  description: "Zero-knowledge proxy node deployment platform. Enter API key, get your config.",
+  title: "AnixOps - Private Node Deployment",
+  description: "A refined, zero-knowledge platform for self-hosted and rental proxy node deployment.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: light)", color: "#f8f5ef" },
     { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
   ],
 };
@@ -29,7 +29,7 @@ export default async function RootLayout({
 
   return (
     <html lang={locale}>
-      <body className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 antialiased">
+      <body className="min-h-screen antialiased">
         <ToastProvider>
           <AuthBootstrap />
           {children}

@@ -1,8 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const UNIFIED_SECRETS_FILE = ".local-secrets.env";
 const API_KEY_FILE = "apikey.txt";
-const LOCAL_SECRETS_FILE = ".local-secrets.env";
 const MAIL_FILE = "mail.txt";
 
 function parseKeyValueSecretFile(content) {
@@ -86,98 +86,68 @@ function readTextFileIfPresent(cwd, fileName) {
   return fs.readFileSync(filePath, "utf8");
 }
 
-function readLocalSecretBundle(cwd) {
-  const content = readTextFileIfPresent(cwd, LOCAL_SECRETS_FILE);
-  if (content === null) {
-    return null;
+function readProviderOverridesFromParsed(parsed) {
+  const env = {};
+  const provider = firstEntryValue(parsed.entries, ["CLOUD_PROVIDER", "provider", "cloud_provider"]).toLowerCase();
+  const genericToken = firstEntryValue(parsed.entries, ["API_KEY", "apikey", "token", "key"]) || parsed.rawValues[0] || "";
+  const vultrApiKey = firstEntryValue(parsed.entries, ["VULTR_API_KEY", "VULTR_TOKEN"]);
+  const digitaloceanToken = firstEntryValue(parsed.entries, [
+    "DIGITALOCEAN_TOKEN",
+    "DIGITALOCEAN_API_TOKEN",
+    "DO_API_TOKEN",
+    "DO_TOKEN",
+  ]);
+  const awsAccessKeyId = firstEntryValue(parsed.entries, [
+    "AWS_ACCESS_KEY_ID",
+    "AWS_ACCESS_KEY",
+    "ACCESS_KEY_ID",
+  ]);
+  const awsSecretAccessKey = firstEntryValue(parsed.entries, [
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SECRET_KEY",
+    "SECRET_ACCESS_KEY",
+  ]);
+  const awsRegion = firstEntryValue(parsed.entries, ["AWS_REGION", "REGION"]);
+  const awsSecurityGroupId = firstEntryValue(parsed.entries, [
+    "AWS_SECURITY_GROUP_ID",
+    "SECURITY_GROUP_ID",
+    "SECURITYGROUPID",
+  ]);
+
+  if (vultrApiKey) {
+    env.VULTR_API_KEY = vultrApiKey;
+  }
+  if (digitaloceanToken) {
+    env.DIGITALOCEAN_TOKEN = digitaloceanToken;
+  }
+  if (awsAccessKeyId) {
+    env.AWS_ACCESS_KEY_ID = awsAccessKeyId;
+  }
+  if (awsSecretAccessKey) {
+    env.AWS_SECRET_ACCESS_KEY = awsSecretAccessKey;
+  }
+  if (awsRegion) {
+    env.AWS_REGION = awsRegion;
+  }
+  if (awsSecurityGroupId) {
+    env.AWS_SECURITY_GROUP_ID = awsSecurityGroupId;
   }
 
-  return parseKeyValueSecretFile(content);
+  if (!env.VULTR_API_KEY && genericToken && provider === "vultr") {
+    env.VULTR_API_KEY = genericToken;
+  }
+  if (!env.DIGITALOCEAN_TOKEN && genericToken && provider === "digitalocean") {
+    env.DIGITALOCEAN_TOKEN = genericToken;
+  }
+
+  if (Object.keys(env).length === 0 && genericToken) {
+    env.VULTR_API_KEY = genericToken;
+  }
+
+  return env;
 }
 
-function readApiKeyOverrides(cwd, bundle = null) {
-  if (bundle) {
-    const bundledKey =
-      firstEntryValue(bundle.entries, ["VULTR_API_KEY", "VULTR_TOKEN", "API_KEY", "apikey", "token", "key"])
-      || bundle.rawValues[0]
-      || "";
-    if (bundledKey) {
-      return { VULTR_API_KEY: bundledKey };
-    }
-  }
-
-  const content = readTextFileIfPresent(cwd, API_KEY_FILE);
-  if (content === null) {
-    return {};
-  }
-
-  const parsed = parseKeyValueSecretFile(content);
-  const vultrApiKey =
-    firstEntryValue(parsed.entries, ["VULTR_API_KEY", "VULTR_TOKEN", "API_KEY", "apikey", "token", "key"])
-    || parsed.rawValues[0]
-    || "";
-
-  return vultrApiKey ? { VULTR_API_KEY: vultrApiKey } : {};
-}
-
-function readMailOverrides(cwd, bundle = null) {
-  if (bundle) {
-    const smtpUser = firstEntryValue(bundle.entries, [
-      "SMTP_USER",
-      "SMTP_USERNAME",
-      "MAIL_USER",
-      "MAIL_USERNAME",
-      "user",
-      "username",
-      "account",
-      "email",
-      "mail",
-      "账号",
-      "账户",
-      "邮箱",
-    ]);
-    const smtpPass = firstEntryValue(bundle.entries, [
-      "SMTP_PASS",
-      "SMTP_PASSWORD",
-      "MAIL_PASS",
-      "MAIL_PASSWORD",
-      "pass",
-      "password",
-      "密码",
-      "授权码",
-    ]);
-    const smtpHost = firstEntryValue(bundle.entries, [
-      "SMTP_HOST",
-      "MAIL_HOST",
-      "host",
-      "smtp_host",
-      "smtpHost",
-      "server",
-      "服务器",
-      "主机",
-    ]);
-    const smtpPort = firstEntryValue(bundle.entries, ["SMTP_PORT", "MAIL_PORT", "port", "smtp_port", "smtpPort", "端口"]);
-    const smtpSecure = firstEntryValue(bundle.entries, ["SMTP_SECURE", "MAIL_SECURE", "secure", "ssl", "tls"]);
-    const smtpFrom = firstEntryValue(bundle.entries, ["SMTP_FROM", "MAIL_FROM", "from", "sender", "发件人"]);
-
-    if (smtpUser || smtpPass || smtpHost || smtpPort || smtpSecure || smtpFrom) {
-      const env = {};
-      if (smtpUser) env.SMTP_USER = smtpUser;
-      if (smtpPass) env.SMTP_PASS = smtpPass;
-      env.SMTP_HOST = smtpHost || inferSmtpHostFromUser(smtpUser);
-      env.SMTP_PORT = smtpPort || "465";
-      env.SMTP_SECURE = smtpSecure || "true";
-      env.SMTP_FROM = smtpFrom || smtpUser;
-      return Object.fromEntries(Object.entries(env).filter(([, value]) => String(value || "").trim()));
-    }
-  }
-
-  const content = readTextFileIfPresent(cwd, MAIL_FILE);
-  if (content === null) {
-    return {};
-  }
-
-  const parsed = parseKeyValueSecretFile(content);
+function readSmtpOverridesFromParsed(parsed) {
   const env = {};
   const smtpHost = firstEntryValue(parsed.entries, ["SMTP_HOST", "host", "smtp_host", "smtpHost", "server", "服务器", "主机"]);
   const smtpPort = firstEntryValue(parsed.entries, ["SMTP_PORT", "port", "smtp_port", "smtpPort", "端口"]);
@@ -196,6 +166,11 @@ function readMailOverrides(cwd, bundle = null) {
   const smtpPass = firstEntryValue(parsed.entries, ["SMTP_PASS", "SMTP_PASSWORD", "pass", "password", "密码", "授权码"]);
   const smtpSecure = firstEntryValue(parsed.entries, ["SMTP_SECURE", "secure", "ssl", "tls"]);
   const smtpFrom = firstEntryValue(parsed.entries, ["SMTP_FROM", "from", "sender", "发件人"]);
+  const hasAnySmtpField = Boolean(smtpHost || smtpPort || smtpUser || smtpPass || smtpSecure || smtpFrom);
+
+  if (!hasAnySmtpField) {
+    return {};
+  }
 
   if (smtpUser) env.SMTP_USER = smtpUser;
   if (smtpPass) env.SMTP_PASS = smtpPass;
@@ -207,11 +182,42 @@ function readMailOverrides(cwd, bundle = null) {
   return Object.fromEntries(Object.entries(env).filter(([, value]) => String(value || "").trim()));
 }
 
-function readLocalCredentialOverrides({ cwd = process.cwd() } = {}) {
-  const bundle = readLocalSecretBundle(cwd);
+function readUnifiedSecretEnvOverrides(cwd) {
+  const content = readTextFileIfPresent(cwd, UNIFIED_SECRETS_FILE);
+  if (content === null) {
+    return {};
+  }
+
+  const parsed = parseKeyValueSecretFile(content);
   return {
-    ...readApiKeyOverrides(cwd, bundle),
-    ...readMailOverrides(cwd, bundle),
+    ...readProviderOverridesFromParsed(parsed),
+    ...readSmtpOverridesFromParsed(parsed),
+  };
+}
+
+function readApiKeyOverrides(cwd) {
+  const content = readTextFileIfPresent(cwd, API_KEY_FILE);
+  if (content === null) {
+    return {};
+  }
+
+  return readProviderOverridesFromParsed(parseKeyValueSecretFile(content));
+}
+
+function readMailOverrides(cwd) {
+  const content = readTextFileIfPresent(cwd, MAIL_FILE);
+  if (content === null) {
+    return {};
+  }
+
+  return readSmtpOverridesFromParsed(parseKeyValueSecretFile(content));
+}
+
+function readLocalCredentialOverrides({ cwd = process.cwd() } = {}) {
+  return {
+    ...readUnifiedSecretEnvOverrides(cwd),
+    ...readApiKeyOverrides(cwd),
+    ...readMailOverrides(cwd),
   };
 }
 
@@ -221,5 +227,5 @@ module.exports = {
   readApiKeyOverrides,
   readLocalCredentialOverrides,
   readMailOverrides,
-  readLocalSecretBundle,
+  readUnifiedSecretEnvOverrides,
 };

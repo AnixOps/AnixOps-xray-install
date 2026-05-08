@@ -9,9 +9,10 @@ import { useLocaleStore } from "@/lib/i18n/store";
 export default function AuthCallbackPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { t } = useLocaleStore();
+  const { t, locale } = useLocaleStore();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [error, setError] = useState<string | null>(null);
+  const isZh = locale === "zh";
 
   useEffect(() => {
     const token = searchParams.get("token");
@@ -25,7 +26,7 @@ export default function AuthCallbackPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     })
-      .then((res) => res.json())
+      .then(readJsonResponse)
       .then((data) => {
         if (data.error) {
           setError(data.error);
@@ -40,10 +41,27 @@ export default function AuthCallbackPage() {
   }, [router, searchParams, setAuth, t]);
 
   return (
-    <div className="mx-auto max-w-lg py-12">
-      <Card className="p-6 space-y-4 text-center">
-        <h1 className="text-xl font-semibold">{error ? t("error.title") : t("auth.magicLink.signingIn")}</h1>
-        <p className="text-sm text-muted-foreground">{error || t("auth.magicLink.verifying")}</p>
+    <div className="apple-shell flex min-h-[70vh] items-center justify-center px-4">
+      <Card className="animate-rise max-w-2xl space-y-5 p-8 text-center">
+        <div className={`mx-auto grid h-16 w-16 place-items-center rounded-full text-sm font-semibold ${error ? "bg-red-50 text-red-600" : "bg-primary/10 text-primary"}`}>
+          {error ? "!" : "AX"}
+        </div>
+        <div className="section-eyebrow">{error ? "Access failed" : "Secure sign-in"}</div>
+        <h1 className="text-3xl font-semibold tracking-[-0.045em]">
+          {error ? t("error.title") : t("auth.magicLink.signingIn")}
+        </h1>
+        <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">
+          {error || t("auth.magicLink.verifying")}
+        </p>
+        <div className="rounded-[1.5rem] border border-black/5 bg-white/70 px-5 py-4 text-sm leading-6 text-muted-foreground">
+          {error
+            ? (isZh
+              ? "这通常表示登录链接已经失效、被使用过，或者当前会话无法完成验证。"
+              : "This usually means the link expired, has already been used, or the current session could not complete verification.")
+            : (isZh
+              ? "验证成功后会自动回到首页，并恢复你的登录状态与权限。"
+              : "After verification succeeds, you will be returned home automatically with your session and access restored.")}
+        </div>
         {error && (
           <Button variant="outline" onClick={() => router.push("/")}>
             {t("nav.home")}
@@ -52,4 +70,16 @@ export default function AuthCallbackPage() {
       </Card>
     </div>
   );
+}
+
+async function readJsonResponse(res: Response) {
+  const text = await res.text();
+  if (!text.trim()) {
+    return { error: `Empty response from server (${res.status})` };
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text || `Invalid response from server (${res.status})` };
+  }
 }
