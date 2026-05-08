@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -10,6 +10,7 @@ const {
   buildRemotePruneCommand,
   collectExpectedRemoteRelativePaths,
   computeStaleRemotePaths,
+  createVersionMetadataUploadTarget,
   extractDataMountOverrides,
   filterUnmanagedContainers,
   findNameCollisions,
@@ -26,6 +27,7 @@ const {
   serializeEnvEntries,
   shouldIncludePath,
   summarizeManifest,
+  resolveBuildCommit,
   validateDeployMode,
 } = require("./selfhosted-deploy.js");
 
@@ -72,6 +74,20 @@ describe("self-hosted deploy helpers", () => {
       skipHealth: false,
       syncOnly: true,
     });
+  });
+
+  it("resolves the build commit from explicit and environment values", () => {
+    const original = process.env.ANIXOPS_BUILD_COMMIT;
+    process.env.ANIXOPS_BUILD_COMMIT = "env1234";
+
+    expect(resolveBuildCommit()).toBe("env1234");
+    expect(resolveBuildCommit("explicit5678")).toBe("explicit5678");
+
+    if (original === undefined) {
+      delete process.env.ANIXOPS_BUILD_COMMIT;
+    } else {
+      process.env.ANIXOPS_BUILD_COMMIT = original;
+    }
   });
 
   it("blocks placeholder mode for real deployments", () => {
@@ -163,6 +179,16 @@ describe("self-hosted deploy helpers", () => {
     expect(source).toContain("rename_suffix=$(date +%Y%m%d%H%M%S)");
     expect(source).toContain('"${container}-legacy-${rename_suffix}"');
     expect(source).not.toContain("renameSuffix");
+  });
+
+  it("creates a temporary versions upload target with the current build commit", () => {
+    const target = createVersionMetadataUploadTarget(process.cwd(), "/opt/anixops-selfhosted", "head1234");
+
+    expect(target).not.toBeNull();
+    expect(target.remotePath).toBe("/opt/anixops-selfhosted/versions.json");
+    const data = JSON.parse(readFileSync(target.localPath, "utf8"));
+    expect(data.commit).toBe("head1234");
+    unlinkSync(target.localPath);
   });
 
   it("uses a retried post-deploy health check with diagnostic output", () => {

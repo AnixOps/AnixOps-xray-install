@@ -560,6 +560,57 @@ function replaceEnvUploadTarget(uploadTargets, remoteDir, entries) {
   ];
 }
 
+function resolveBuildCommit(explicitCommit = "") {
+  return String(
+    explicitCommit
+      || process.env.ANIXOPS_BUILD_COMMIT
+      || process.env.GIT_COMMIT
+      || process.env.CI_COMMIT_SHA
+      || process.env.CI_COMMIT_SHORT_SHA
+      || "",
+  ).trim();
+}
+
+function createVersionMetadataUploadTarget(repoRoot, remoteDir, buildCommit) {
+  const normalizedCommit = resolveBuildCommit(buildCommit);
+  if (!normalizedCommit) {
+    return null;
+  }
+
+  const versionsPath = path.join(repoRoot, "versions.json");
+  if (!fs.existsSync(versionsPath)) {
+    return null;
+  }
+
+  const current = JSON.parse(fs.readFileSync(versionsPath, "utf8"));
+  const next = {
+    ...current,
+    commit: normalizedCommit,
+  };
+  const tempPath = path.join(os.tmpdir(), `anixops-versions-${Date.now()}-${process.pid}.json`);
+  fs.writeFileSync(tempPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+
+  return {
+    localPath: tempPath,
+    remotePath: path.posix.join(remoteDir, "versions.json"),
+    temp: true,
+  };
+}
+
+function replaceVersionMetadataUploadTarget(uploadTargets, repoRoot, remoteDir, buildCommit) {
+  const metadataTarget = createVersionMetadataUploadTarget(repoRoot, remoteDir, buildCommit);
+  if (!metadataTarget) {
+    return uploadTargets;
+  }
+
+  return uploadTargets.map((target) => {
+    if (path.posix.basename(target.remotePath) === "versions.json") {
+      return metadataTarget;
+    }
+    return target;
+  });
+}
+
 function loadSshConfigForMode({ dryRun }) {
   if (!dryRun) {
     return loadSshConfig();
@@ -591,6 +642,7 @@ async function main() {
   const manifest = buildUploadManifest(repoRoot);
   const summary = summarizeManifest(repoRoot, manifest);
   const config = loadSshConfigForMode(args);
+  const buildCommit = resolveBuildCommit();
   let remoteEnvEntries = {};
   let validation = { provider: "not-required", issues: [] };
   let uploadTargets = [
@@ -610,6 +662,8 @@ async function main() {
     remoteEnvEntries = { ...env };
     uploadTargets = replaceEnvUploadTarget(uploadTargets, args.remoteDir, remoteEnvEntries);
   }
+
+  uploadTargets = replaceVersionMetadataUploadTarget(uploadTargets, repoRoot, args.remoteDir, buildCommit);
 
   if (args.dryRun) {
     const uploadBytes = uploadTargets.reduce((total, target) => total + fs.statSync(target.localPath).size, 0);
@@ -860,6 +914,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  createVersionMetadataUploadTarget,
   buildUploadManifest,
   buildManagedRemoteListingCommand,
   buildRemotePruneCommand,
@@ -877,10 +932,12 @@ module.exports = {
   parseHostPortListeners,
   parsePortConflicts,
   partitionConflicts,
+  replaceVersionMetadataUploadTarget,
   serializeEnvEntries,
   shouldIncludePath,
   summarizeManifest,
   loadSshConfigForMode,
+  resolveBuildCommit,
   formatEnvValidationFailure,
   validateDeployMode,
 };

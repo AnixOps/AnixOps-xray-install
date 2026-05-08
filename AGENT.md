@@ -156,6 +156,7 @@ node scripts/selfhosted-deploy.js --replace-live
 ```
 
 - 正式版发布时，`NEXT_PUBLIC_RELEASE_PROFILE=formal` 必须同时出现在 `web` 的 build arg 和运行时环境里，否则前端仍会按测试版渲染。
+- 正式版部署时，务必把当前 `HEAD` 传给部署脚本的构建号，例如 `ANIXOPS_BUILD_COMMIT=$(git rev-parse --short HEAD)`，让主界面版本号和发布快照保持一致。
 
 - 远端状态和健康检查优先使用：
 
