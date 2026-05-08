@@ -1,6 +1,6 @@
 # AnixOps 当前未完成事项
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 ## 说明
 
@@ -8,15 +8,18 @@ Last updated: 2026-05-08
 
 P0 测试服充值闭环已在 2026-05-08 的 `scripts/recharge-smoke.js` live run 中验收完成。
 
+2026-05-09 的 `node scripts/remote-ops.js audit-anchor-smoke` 已验证审计锚定 synthetic 闭环，batch、receipt 和 verify 都通过。
+
 用户侧钱包控制台也已经规范化：首页保留 `Console Wallet` 登录入口，普通用户可以通过邮箱魔法链接进入 `/console/wallet`，链上充值单会明确展示精确到账金额、网络、过期时间、状态和复制按钮，并对待确认单据自动轮询。
+
+管理端充值/链上充值/钱包流水的统一钻取面板也已经补齐，topup 记录可以直接打开统一详情卡查看关联钱包流水。
 
 ## 外部依赖
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 支付和充值后台展示 | Partial | 用户侧 Console Wallet 充值流程已经标准化；管理端已拆出近期 payment、fiat topup、crypto topup、wallet ledger 和 audit anchor batch 视图，但更完整的钻取与汇总还需要继续补齐 |
 | 真实链上充值 provider | Missing | 还需要真实地址分配、确认监听、汇率源和对账流程 |
-| 审计 anchor 测试链实跑与生产化 | Partial | 管理端已展示 anchor batch、txHash、receipt summary、recovery hint，并支持 verify；已补 smoke 脚本，但还需要远端 env、测试 gas、第一笔闭环验证和生产主网方案 |
+| 审计 anchor 测试链实跑与生产化 | Partial | 管理端已展示 anchor batch、txHash、receipt summary、recovery hint，并支持 verify；2026-05-09 已通过 `node scripts/remote-ops.js audit-anchor-smoke` 的 synthetic 闭环实跑，且恢复入口已补成 `node scripts/remote-ops.js audit-anchor-recover <txHash>`，仍需生产主网方案 |
 | 合规统计更细展示 | Partial | 管理端和控制台已展示 profile、blocked protocol、reject stats 和 sync coverage；仍可继续补导出、告警和更细的用户端统计 |
 
 ## 需要决策

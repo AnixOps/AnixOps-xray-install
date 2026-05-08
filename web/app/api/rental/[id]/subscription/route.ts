@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateHysteria2Subscription, generateVlessRealitySubscription } from "@/lib/config/generator";
+import { normalizeConfigSubscription } from "@/lib/config/generator";
 
 export async function GET(
   request: Request,
@@ -34,12 +34,14 @@ export async function GET(
   }
 
   const rawConfig = await res.json();
-  const payload = rawConfig.protocol === "vless-reality"
-    ? generateVlessRealitySubscription(rawConfig)
-    : generateHysteria2Subscription(rawConfig);
+  const subscriptionResult = normalizeConfigSubscription(rawConfig, format === "raw" ? "raw" : "universal");
+
+  if (!subscriptionResult.ok) {
+    return NextResponse.json({ error: subscriptionResult.error }, { status: subscriptionResult.status });
+  }
 
   if (format === "raw") {
-    return new NextResponse(Buffer.from(payload, "base64").toString("utf-8"), {
+    return new NextResponse(subscriptionResult.subscription, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   }
@@ -47,6 +49,6 @@ export async function GET(
   return NextResponse.json({
     protocol: rawConfig.protocol,
     format,
-    subscription: payload,
+    subscription: subscriptionResult.subscription,
   });
 }

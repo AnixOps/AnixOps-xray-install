@@ -1,6 +1,6 @@
 # EVM 测试链落地步骤
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 ## 目标
 
@@ -276,7 +276,10 @@ node scripts/remote-ops.js deploy
 ```bash
 node scripts/remote-ops.js health --strict
 node scripts/remote-ops.js smoke
+node scripts/remote-ops.js redeem-smoke
 ```
+
+`redeem-smoke` 会同时覆盖 `duration` 和 `wallet` 两种 CDK 兑换码，顺手确认订阅链接和钱包账本都能正常落地。
 
 ## 步骤 7：跑第一笔测试充值
 
@@ -325,6 +328,12 @@ node scripts/audit-anchor-worker.js
 如果 batch 已经记录了 `txHash`，下一次 worker 会优先查询 receipt 并自动 finalize，不会直接再发第二笔链上交易。
 
 如果 worker 告警里没有落库 `txHash`，但你从 explorer 或 RPC 日志确认链上交易已经发出，这时优先复用原交易 hash 做人工恢复，不要直接再发第二笔链上交易：
+
+```bash
+node scripts/remote-ops.js audit-anchor-recover <existing-tx-hash>
+```
+
+如果你已经在测试服主机上登录了容器环境，也可以直接在 `scheduler` 容器里跑：
 
 ```bash
 node scripts/audit-anchor-worker.js --tx-hash <existing-tx-hash> --json

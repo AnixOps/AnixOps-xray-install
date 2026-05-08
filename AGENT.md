@@ -24,7 +24,7 @@
 5. 兑换码可以创建 rental、进入 provision 流程。
 6. 测试服页面明确显示测试版标注。
 7. 正式版 V1 通过 `NEXT_PUBLIC_RELEASE_PROFILE=formal` 收口到 `CDK`，只保留 `wallet` 余额直充型和 `duration` 单次型。
-8. 管理端和支付记录能区分充值、余额扣费、兑换码、历史直接支付记录。
+8. 管理端和支付记录能区分充值、余额扣费、兑换码、历史直接支付记录，并支持充值/账本钻取。
 
 中期目标：把测试链能力迁移成可生产化方案。
 
@@ -75,7 +75,7 @@
 | 测试服链路 | 默认使用 `Base Sepolia + mock USDT` |
 | 测试服开放范围 | 链上相关能力只对白名单邮箱开放 |
 | 测试服标注 | 所有非正式版本站点顶部必须显示测试版提示 |
-| 前端大改组件库 | 主线定为 `shadcn/ui + Radix UI + TanStack Table + lucide-react + sonner`，细节见 `docs/frontend-redesign-plan.md` |
+| 前端大改组件库 | 主线定为 `shadcn/ui + Radix UI + TanStack Table + lucide-react + sonner`，执行顺序和入口文件见 `docs/frontend-redesign-plan.md` |
 | 云厂商 | 保留 `Vultr`、`DigitalOcean`、`AWS` 三家，当前默认 `Vultr` |
 | 私钥用途 | 充值钱包私钥和审计锚定私钥必须分离 |
 | 支付详情页 | 支付记录里的 `rental_id` 会跳到 `/payments/[rentalId]`，页面展示节点状态和订阅链接 |
@@ -89,8 +89,7 @@
 
 | 优先级 | 工作 | 目标状态 | 验收标准 |
 |---|---|---|---|
-| P1 | 审计 anchor 测试链闭环 | 管理端已展示 anchor batch、`txHash`、receipt summary、recovery hint，并支持 verify；已补 smoke 脚本 | 仍需测试链闭环、`receipt` 恢复和失败恢复 SOP 的实跑验证 |
-| P1 | 支付和充值后台展示 | 管理端能区分充值、余额扣费、兑换码和历史直接支付 | 后台列表显示来源和状态，不混淆 rental payment 与 topup |
+| P1 | 审计 anchor 生产闭环与恢复 SOP | 管理端已展示 anchor batch、`txHash`、receipt summary、recovery hint，并支持 verify；`node scripts/remote-ops.js audit-anchor-smoke` 已在 2026-05-09 跑通 synthetic 闭环，且新增 `node scripts/remote-ops.js audit-anchor-recover <txHash>` 作为恢复入口 | 仍需生产主网方案 |
 | P2 | 真实链上充值生产化 | 明确生产链、资产、provider、确认监听、汇率源和对账 | 写入生产方案并完成小额实测 |
 | P2 | 合规统计展示 | 管理端和控制台已展示 profile、blocked protocol、reject stats 和 sync coverage | 仍可继续补导出、告警和更细的用户端统计 |
 | P2 | 合规产品边界 | 明确合规模式是正式产品线还是安全增强 profile | 文档和 UI 口径一致 |
@@ -98,11 +97,10 @@
 
 ## 当前推荐实施顺序
 
-1. 先把正式版 V1 的 tag 发布和远端部署跑通，默认用 `NEXT_PUBLIC_RELEASE_PROFILE=formal` 验证 CDK 两种兑换码、节点详情页和支付记录跳转。
+1. 先把正式版 V1 的 tag 发布和远端部署跑通，默认用 `NEXT_PUBLIC_RELEASE_PROFILE=formal` 验证 CDK 两种兑换码、节点详情页和支付记录跳转；远端验收至少包含 `node scripts/remote-ops.js health --strict` 和 `node scripts/remote-ops.js redeem-smoke`。
 2. 跑测试服充值闭环：先用 `node scripts/recharge-smoke.js` 验证充值、入账和余额租用，再补兑换码租用、支付记录展示。
-3. 再处理审计 anchor 测试链闭环和生产主网决策，优先跑 `node scripts/audit-anchor-smoke.js --confirmation-mode synthetic`。
-4. 补齐支付和充值后台展示，让充值、余额扣费、兑换码和历史直接支付不混淆。
-5. 最后再决定 Worker API 去留，避免重复维护两套核心入口。
+3. 再处理审计 anchor 的恢复 SOP 和生产主网决策，`node scripts/remote-ops.js audit-anchor-smoke` 已验证 synthetic 闭环，`node scripts/remote-ops.js audit-anchor-recover <txHash>` 已作为恢复入口补上，下一步补生产主网决策。
+4. 最后再决定 Worker API 去留，避免重复维护两套核心入口。
 
 ## 敏感信息与安全边界
 
@@ -211,6 +209,8 @@ npm run crypto:bootstrap-testnet -- --chain base-sepolia --whitelist-emails qa@e
 如果任务和前端大改、UI 组件库、控制台布局、管理后台布局或视觉系统有关，先看：
 
 - [docs/frontend-redesign-plan.md](docs/frontend-redesign-plan.md)
+
+前端大改任务的默认流程是先读 `AGENT.md`，再读 `docs/frontend-redesign-plan.md`，最后再改代码；如果要变更组件库、迁移顺序或视觉边界，先同步更新 `docs/frontend-redesign-plan.md`。
 
 如果任务和正式版发布、充值渠道配置、CDK 兑换码双版本有关，先看：
 

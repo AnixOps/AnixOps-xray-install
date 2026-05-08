@@ -145,7 +145,7 @@ function buildNextSteps(input) {
     steps.push(input.writeEnv
       ? "Review the updated local .env.selfhosted file, then sync it to the remote host."
       : "Paste the env snippet into the remote .env.selfhosted file.");
-    steps.push("Run node scripts/remote-ops.js deploy, then node scripts/remote-ops.js health --strict and node scripts/remote-ops.js smoke.");
+    steps.push("Run node scripts/remote-ops.js deploy, then node scripts/remote-ops.js health --strict, node scripts/remote-ops.js smoke, and node scripts/remote-ops.js redeem-smoke to verify the CDK duration and wallet flows.");
     steps.push("Create the first crypto topup order with a whitelist email, send the exact expectedAmount of mock USDT, then run node scripts/recharge-smoke.js --confirmation-mode auto or --confirmation-mode synthetic for a full recharge verification. Use node scripts/crypto-topup-worker.js --json or node scripts/crypto-topup-confirm.js when you only need topup settlement.");
     steps.push("Run node scripts/audit-anchor-smoke.js --confirmation-mode synthetic for a closed-loop audit anchor smoke, or --confirmation-mode auto when anchor RPC/signing is configured.");
   }

@@ -10,11 +10,7 @@ import { useAuthStore } from "@/lib/auth/store";
 import { workerFetch } from "@/lib/api/client";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { generateHysteria2Config, generateVlessRealityConfig } from "@/lib/config/generator";
-import { RedeemCodesTable, type RedeemCodeRow } from "@/components/admin/RedeemCodesTable";
-import { RecentPaymentsTable } from "@/components/admin/RecentPaymentsTable";
-import { RecentAnchorBatchesTable } from "@/components/admin/RecentAnchorBatchesTable";
-import { RecentCryptoTopupsTable } from "@/components/admin/RecentCryptoTopupsTable";
-import { RecentFiatTopupsTable } from "@/components/admin/RecentFiatTopupsTable";
+import { type RedeemCodeRow } from "@/components/admin/RedeemCodesTable";
 import { RecentFailedJobsTable } from "@/components/admin/RecentFailedJobsTable";
 import { ProvisioningRentalsTable } from "@/components/admin/ProvisioningRentalsTable";
 import { RecentRentalsTable } from "@/components/admin/RecentRentalsTable";
@@ -22,16 +18,16 @@ import { RecentQueueJobsTable } from "@/components/admin/RecentQueueJobsTable";
 import { SearchRentalsTable } from "@/components/admin/SearchRentalsTable";
 import { SearchUsersTable } from "@/components/admin/SearchUsersTable";
 import { RecentStageLogsTable } from "@/components/admin/RecentStageLogsTable";
-import { RecentWalletLedgerTable } from "@/components/admin/RecentWalletLedgerTable";
 import { ChainModeReadinessTable } from "@/components/admin/ChainModeReadinessTable";
-import { CodeTemplatesTable } from "@/components/admin/CodeTemplatesTable";
 import { ComplianceStatsTable } from "@/components/admin/ComplianceStatsTable";
 import { ComplianceTrackingTables } from "@/components/admin/ComplianceTrackingTables";
 import { SystemHealthChecksTable } from "@/components/admin/SystemHealthChecksTable";
-import { classifyAdminPaymentBucket, type PaymentBucket } from "@/components/admin/payment-utils";
+import { AdminActivitySection } from "@/components/admin/AdminActivitySection";
+import { AdminCodesSection } from "@/components/admin/AdminCodesSection";
+import { type AdminTopupDetailResponse } from "@/components/admin/topup-detail-types";
 import { ConsoleAuditTable } from "@/components/console/ConsoleAuditTable";
+import { CenteredStatus } from "@/components/layout/CenteredStatus";
 import { Button, Card, Input, Label, Badge, Textarea, useToast } from "@/components/ui";
-import { formatRedeemCodeTypeLabel } from "@/lib/payment-records";
 
 interface ProvisionDebugJob {
   id: string;
@@ -248,8 +244,6 @@ interface AdminOverviewResponse {
   };
 }
 
-type AdminPaymentRecord = AdminOverviewResponse["recentPayments"][number];
-
 interface SearchResponse {
   users: Array<{
     userId: string;
@@ -345,43 +339,6 @@ interface ClientConfig {
   shadowrocket: string;
 }
 
-const CODE_TEMPLATES = [
-  {
-    label: "CDK Balance $10",
-    codeType: "wallet" as const,
-    walletAmount: 10,
-    count: 10,
-    note: "Balance topup CDKs for wallet credit.",
-  },
-  {
-    label: "CDK Balance $25",
-    codeType: "wallet" as const,
-    walletAmount: 25,
-    count: 10,
-    note: "Medium-value balance topup batch.",
-  },
-  {
-    label: "CDK 1h",
-    codeType: "duration" as const,
-    durationHours: 1,
-    count: 10,
-    note: "Fast-access one-time rental batch.",
-  },
-  {
-    label: "CDK 24h",
-    codeType: "duration" as const,
-    durationHours: 24,
-    count: 20,
-    note: "Default single-day package.",
-  },
-];
-
-const CODE_FILTERS: Array<{ id: "all" | "available" | "used"; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "available", label: "Available" },
-  { id: "used", label: "Used" },
-];
-
 export type AdminSection = "overview" | "system-health" | "provisioning" | "rentals" | "codes" | "activity";
 
 const ADMIN_NAV: Array<{ section: AdminSection; href: string; label: string; description: string }> = [
@@ -396,6 +353,7 @@ const ADMIN_NAV: Array<{ section: AdminSection; href: string; label: string; des
 export function AdminConsole({ section = "overview" }: { section?: AdminSection }) {
   const router = useRouter();
   const detailRef = useRef<HTMLDivElement | null>(null);
+  const topupDetailRef = useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const { locale } = useLocaleStore();
   const token = useAuthStore((s) => s.token);
@@ -413,6 +371,9 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
   const [searching, setSearching] = useState(false);
   const [destroying, setDestroying] = useState(false);
   const [releasingRentalId, setReleasingRentalId] = useState<string | null>(null);
+  const [selectedTopup, setSelectedTopup] = useState<AdminTopupDetailResponse | null>(null);
+  const [selectedTopupId, setSelectedTopupId] = useState<string | null>(null);
+  const [loadingTopupId, setLoadingTopupId] = useState<string | null>(null);
   const [creatingProvisionTest, setCreatingProvisionTest] = useState(false);
   const [checkingProvider, setCheckingProvider] = useState(false);
   const [providerCheck, setProviderCheck] = useState<ProviderCheckResponse | null>(null);
@@ -536,21 +497,6 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
     ];
   }, [selectedRental]);
 
-  const recentPaymentBuckets = useMemo(() => {
-    const buckets: Record<PaymentBucket, AdminPaymentRecord[]> = {
-      wallet: [],
-      redeem_code: [],
-      x402: [],
-      legacy: [],
-    };
-
-    for (const payment of overview?.recentPayments ?? []) {
-      buckets[classifyAdminPaymentBucket(payment.method)].push(payment);
-    }
-
-    return buckets;
-  }, [overview?.recentPayments]);
-
   const filteredCodes = useMemo(() => {
     if (codeFilter === "all") {
       return codes;
@@ -628,7 +574,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
     }
   };
 
-  const loadRentalDetail = async (rentalId: string) => {
+  const loadRentalDetail = async (rentalId: string, options?: { scroll?: boolean }) => {
     if (!token) return;
     setSelectedRentalId(rentalId);
     setLoadingRentalId(rentalId);
@@ -642,13 +588,43 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
         throw new Error(data.error || "Failed to load rental detail");
       }
       setSelectedRental(data);
-      window.requestAnimationFrame(() => {
-        detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
+      if (options?.scroll !== false) {
+        window.requestAnimationFrame(() => {
+          detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to load rental detail", "error");
     } finally {
       setLoadingRentalId(null);
+    }
+  };
+
+  const loadTopupDetail = async (topupId: string, options?: { scroll?: boolean }) => {
+    if (!token) return;
+    setSelectedTopupId(topupId);
+    setLoadingTopupId(topupId);
+    try {
+      const res = await workerFetch(`/api/admin/topups/${topupId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to load topup detail");
+      }
+      setSelectedTopup(data);
+      if (options?.scroll !== false) {
+        window.requestAnimationFrame(() => {
+          topupDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+    } catch (error) {
+      setSelectedTopup(null);
+      setSelectedTopupId(null);
+      showToast(error instanceof Error ? error.message : "Failed to load topup detail", "error");
+    } finally {
+      setLoadingTopupId(null);
     }
   };
 
@@ -675,7 +651,10 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
     try {
       await loadAll(true);
       if (selectedRentalId) {
-        await loadRentalDetail(selectedRentalId);
+        await loadRentalDetail(selectedRentalId, { scroll: false });
+      }
+      if (selectedTopupId) {
+        await loadTopupDetail(selectedTopupId, { scroll: false });
       }
       await refreshSearchResults();
     } finally {
@@ -722,6 +701,12 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
     }
   };
 
+  const handleClearTopupDetail = () => {
+    setSelectedTopup(null);
+    setSelectedTopupId(null);
+    setLoadingTopupId(null);
+  };
+
   useEffect(() => {
     if (!token) {
       router.push("/");
@@ -759,7 +744,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [token, isAdmin, selectedRentalId, searchQuery]);
+  }, [token, isAdmin, selectedRentalId, selectedTopupId, searchQuery]);
 
   const handleGenerate = async () => {
     if (!token) return;
@@ -1047,20 +1032,23 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
 
   if (!token || !isAdmin) {
     return (
-      <AdminStatusScreen
+      <CenteredStatus
         eyebrow="Admin"
         title={copy.redirectTitle}
         body={copy.redirectBody}
+        tone="neutral"
       />
     );
   }
 
   if (loading && !overview && codes.length === 0) {
     return (
-      <AdminStatusScreen
+      <CenteredStatus
         eyebrow="Admin"
         title={copy.loadingTitle}
         body={copy.loadingBody}
+        tone="neutral"
+        pulse
       />
     );
   }
@@ -1345,65 +1333,92 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
       )}
 
       {(showRentals || showCodes) && (
-      <div className="grid gap-6 xl:grid-cols-3">
-        {showRentals && (
-        <GlassCard className="xl:col-span-2">
-          <SectionHeader
-            title="Search Users / Rentals"
-            description="Find users, rental IDs, IPs, protocols, and active states quickly."
-            action={(
-              <Button
-                variant="outline"
-                onClick={handleSearch}
-                disabled={searching}
-                className="rounded-full border-black/10 bg-white/90 px-5 shadow-sm"
-              >
-                {searching ? "Searching..." : "Search"}
-              </Button>
-            )}
-          />
+        <div className="space-y-6">
+          {showRentals && (
+            <div className="grid gap-6 xl:grid-cols-3">
+              <GlassCard className="xl:col-span-2">
+                <SectionHeader
+                  title="Search Users / Rentals"
+                  description="Find users, rental IDs, IPs, protocols, and active states quickly."
+                  action={(
+                    <Button
+                      variant="outline"
+                      onClick={handleSearch}
+                      disabled={searching}
+                      className="rounded-full border-black/10 bg-white/90 px-5 shadow-sm"
+                    >
+                      {searching ? "Searching..." : "Search"}
+                    </Button>
+                  )}
+                />
 
-          <div className="flex gap-3">
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="email, rental id, IP, protocol, status"
-              className="rounded-2xl border-black/10 bg-white/95 shadow-sm"
-            />
-          </div>
+                <div className="flex gap-3">
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="email, rental id, IP, protocol, status"
+                    className="rounded-2xl border-black/10 bg-white/95 shadow-sm"
+                  />
+                </div>
 
-          {searchResult && (
-            <div className="grid gap-4 xl:grid-cols-2">
-              <SearchUsersTable rows={searchResult.users} />
-              <SearchRentalsTable rows={searchResult.rentals} onOpenRental={loadRentalDetail} />
+                {searchResult && (
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <SearchUsersTable rows={searchResult.users} />
+                    <SearchRentalsTable rows={searchResult.rentals} onOpenRental={loadRentalDetail} />
+                  </div>
+                )}
+              </GlassCard>
             </div>
           )}
-        </GlassCard>
-        )}
 
-        {showCodes && (
-        <GlassCard>
-          <SectionHeader
-            title="Code Templates"
-            description="Pre-fill the generator with common campaign packages."
-            action={<Badge variant="outline" className="rounded-full px-3">{CODE_TEMPLATES.length}</Badge>}
-          />
-
-          <CodeTemplatesTable
-            templates={CODE_TEMPLATES}
-            onApplyTemplate={(template) => {
-              setCount(String(template.count));
-              setCodeType(template.codeType);
-              if (template.codeType === "wallet") {
-                setWalletAmount(String(template.walletAmount ?? 10));
-              } else {
-                setDurationHours(String(template.durationHours ?? 24));
-              }
-            }}
-          />
-        </GlassCard>
-        )}
-      </div>
+          {showCodes && (
+            <AdminCodesSection
+              isZh={isZh}
+              loading={loading}
+              refreshing={refreshing}
+              submitting={submitting}
+              bulkDeleting={bulkDeleting}
+              count={count}
+              codeType={codeType}
+              durationHours={durationHours}
+              walletAmount={walletAmount}
+              expiresAt={expiresAt}
+              codeFilter={codeFilter}
+              filteredCodes={filteredCodes}
+              selectedCodeIds={selectedCodeIds}
+              allVisibleSelected={allVisibleSelected}
+              editingCodeId={editingCodeId}
+              editingValue={editingValue}
+              editingExpiresAt={editingExpiresAt}
+              onSetCount={setCount}
+              onSetCodeType={setCodeType}
+              onSetDurationHours={setDurationHours}
+              onSetWalletAmount={setWalletAmount}
+              onSetExpiresAt={setExpiresAt}
+              onSetCodeFilter={setCodeFilter}
+              onApplyTemplate={(template) => {
+                setCount(String(template.count));
+                setCodeType(template.codeType);
+                if (template.codeType === "wallet") {
+                  setWalletAmount(String(template.walletAmount ?? 10));
+                } else {
+                  setDurationHours(String(template.durationHours ?? 24));
+                }
+              }}
+              onRefresh={() => loadAll()}
+              onGenerate={handleGenerate}
+              onBulkDelete={handleBulkDelete}
+              onToggleSelectAllVisible={toggleSelectAllVisible}
+              onToggleCodeSelection={toggleCodeSelection}
+              onStartEdit={startEditCode}
+              onCancelEdit={() => setEditingCodeId(null)}
+              onUpdateCode={handleUpdateCode}
+              onDeleteCode={handleDeleteCode}
+              onEditingValueChange={setEditingValue}
+              onEditingExpiresAtChange={setEditingExpiresAt}
+            />
+          )}
+        </div>
       )}
 
       {(showRentalDetail || showProvisioning) && (
@@ -1537,177 +1552,28 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
           {showRentals && <RecentRentalsTable rows={overview.recentRentals} onOpenRental={loadRentalDetail} />}
 
           {showActivity && (
-          <GlassCard>
-            <SectionHeader
-              title="Activity"
-              description="Topups, balance movement, payments, anchors, and audit events are split into dedicated tables."
+            <AdminActivitySection
+              isZh={isZh}
+              recentTopups={overview.recentTopups}
+              recentCryptoTopups={overview.recentCryptoTopups}
+              recentWalletLedgerEntries={overview.recentWalletLedgerEntries}
+              recentPayments={overview.recentPayments}
+              recentAnchorBatches={overview.recentAnchorBatches}
+              recentAuditEntries={overview.recentAuditEntries}
+              selectedTopup={selectedTopup}
+              selectedTopupId={selectedTopupId}
+              loadingTopupId={loadingTopupId}
+              onOpenRental={loadRentalDetail}
+              onOpenTopup={loadTopupDetail}
+              onClearTopup={handleClearTopupDetail}
+              onVerifyAnchorBatch={handleVerifyAnchorBatch}
+              verifyingAnchorBatchId={verifyingAnchorBatchId}
+              topupDetailRef={topupDetailRef}
             />
-            <div className="space-y-6">
-              <RecentFiatTopupsTable rows={overview.recentTopups} />
-              <RecentCryptoTopupsTable rows={overview.recentCryptoTopups} />
-              <RecentWalletLedgerTable rows={overview.recentWalletLedgerEntries} />
-              <div className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <DebugMetric label="Wallet Checkouts" value={String(recentPaymentBuckets.wallet.length)} />
-                  <DebugMetric label="Redeem-code Rentals" value={String(recentPaymentBuckets.redeem_code.length)} />
-                  <DebugMetric label="X402 Rails" value={String(recentPaymentBuckets.x402.length)} />
-                  <DebugMetric label="Legacy Direct Payments" value={String(recentPaymentBuckets.legacy.length)} />
-                </div>
-                <RecentPaymentsTable rows={overview.recentPayments} onOpenRental={loadRentalDetail} />
-              </div>
-              <RecentAnchorBatchesTable
-                rows={overview.recentAnchorBatches}
-                onVerify={handleVerifyAnchorBatch}
-                verifyingBatchId={verifyingAnchorBatchId}
-              />
-              <ConsoleAuditTable title="Recent Audit" entries={overview.recentAuditEntries} empty="No audit entries yet." />
-            </div>
-          </GlassCard>
           )}
         </div>
       )}
 
-      {showCodes && (
-      <GlassCard>
-        <SectionHeader
-          title="Generate Codes"
-          description="Create a CDK batch for either wallet credit or one-time rental."
-        />
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div>
-            <Label>Count</Label>
-            <Input
-              value={count}
-              onChange={(e) => setCount(e.target.value)}
-              type="number"
-              min="1"
-              max="100"
-              className="mt-1 rounded-2xl border-black/10 bg-white/95 shadow-sm"
-            />
-          </div>
-          <div>
-            <Label>Code Type</Label>
-            <div className="mt-1 grid gap-2 sm:grid-cols-2">
-              {(["wallet", "duration"] as const).map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setCodeType(type)}
-                  className={`rounded-2xl border px-4 py-3 text-left text-sm transition ${
-                    codeType === type
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-black/10 bg-white/90 text-foreground hover:bg-white"
-                  }`}
-                >
-                  <div className="font-medium">{formatRedeemCodeTypeLabel(type, isZh)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {type === "wallet"
-                      ? (isZh ? "生成后进入钱包余额。" : "Credits the wallet balance on redemption.")
-                      : (isZh ? "生成后直接创建一次租用。" : "Creates one prepaid rental on redemption.")}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <Label>{codeType === "wallet" ? (isZh ? "金额 (USD)" : "Amount (USD)") : (isZh ? "时长 (小时)" : "Duration (hours)")}</Label>
-            <Input
-              value={codeType === "wallet" ? walletAmount : durationHours}
-              onChange={(e) => {
-                if (codeType === "wallet") {
-                  setWalletAmount(e.target.value);
-                } else {
-                  setDurationHours(e.target.value);
-                }
-              }}
-              type="number"
-              min={codeType === "wallet" ? "0.01" : "1"}
-              step={codeType === "wallet" ? "0.01" : "1"}
-              className="mt-1 rounded-2xl border-black/10 bg-white/95 shadow-sm"
-            />
-          </div>
-          <div>
-            <Label>Expires At</Label>
-            <Input
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-              type="datetime-local"
-              className="mt-1 rounded-2xl border-black/10 bg-white/95 shadow-sm"
-            />
-          </div>
-        </div>
-        </div>
-        <div className="flex justify-end">
-          <Button onClick={handleGenerate} disabled={submitting} className="rounded-full px-5 shadow-sm">
-            {submitting ? "Generating..." : "Generate and Copy"}
-          </Button>
-        </div>
-      </GlassCard>
-      )}
-
-      {showCodes && (
-      <GlassCard>
-        <SectionHeader
-          title="Redeem Codes"
-          description="Edit code type, control expiry, filter visible rows, and delete in bulk."
-          action={
-            <div className="flex flex-wrap gap-2">
-              {CODE_FILTERS.map((filter) => (
-                <button
-                  key={filter.id}
-                  onClick={() => setCodeFilter(filter.id)}
-                  className={`rounded-full border px-4 py-2 text-xs transition ${
-                    codeFilter === filter.id
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-black/10 bg-white/90 text-foreground hover:bg-white"
-                  }`}
-                >
-                  {filter.label}
-                </button>
-              ))}
-              <Button
-                variant="outline"
-                onClick={() => loadAll()}
-                disabled={loading || refreshing}
-                className="rounded-full border-black/10 bg-white/90 shadow-sm"
-              >
-                {loading || refreshing ? "Refreshing..." : "Refresh"}
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleBulkDelete}
-                disabled={bulkDeleting || selectedCodeIds.length === 0}
-                className="rounded-full shadow-sm"
-              >
-                {bulkDeleting ? "Deleting..." : `Delete Selected${selectedCodeIds.length ? ` (${selectedCodeIds.length})` : ""}`}
-              </Button>
-            </div>
-          }
-        />
-
-        {loading ? (
-          <EmptyMessage>Loading...</EmptyMessage>
-        ) : (
-          <RedeemCodesTable
-            rows={filteredCodes}
-            selectedCodeIds={selectedCodeIds}
-            allVisibleSelected={allVisibleSelected}
-            editingCodeId={editingCodeId}
-            editingValue={editingValue}
-            editingExpiresAt={editingExpiresAt}
-            onToggleSelectAllVisible={toggleSelectAllVisible}
-            onToggleCodeSelection={toggleCodeSelection}
-            onStartEdit={startEditCode}
-            onCancelEdit={() => setEditingCodeId(null)}
-            onUpdateCode={handleUpdateCode}
-            onDeleteCode={handleDeleteCode}
-            onEditingValueChange={setEditingValue}
-            onEditingExpiresAtChange={setEditingExpiresAt}
-          />
-        )}
-      </GlassCard>
-      )}
     </div>
     </WorkspaceShell>
   );
@@ -1868,29 +1734,6 @@ function DetailItem({ label, value, mono = false }: { label: string; value: stri
     <div className="rounded-2xl border border-black/5 bg-white/95 p-4 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
       <div className={`mt-2 text-sm ${mono ? "font-mono break-all" : "font-medium tracking-tight"}`}>{value}</div>
-    </div>
-  );
-}
-
-function AdminStatusScreen({
-  eyebrow,
-  title,
-  body,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="mx-auto max-w-3xl px-4 py-14">
-      <Card className="animate-rise space-y-5 p-8 text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-          AX
-        </div>
-        <div className="section-eyebrow">{eyebrow}</div>
-        <h1 className="text-3xl font-semibold tracking-[-0.045em]">{title}</h1>
-        <p className="mx-auto max-w-2xl text-sm leading-7 text-muted-foreground">{body}</p>
-      </Card>
     </div>
   );
 }

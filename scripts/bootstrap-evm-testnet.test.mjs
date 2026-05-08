@@ -159,6 +159,7 @@ describe("bootstrap-evm-testnet helpers", () => {
     expect(predeploy.some((step) => step.includes("--deploy-mock-usdt"))).toBe(true);
     expect(postdeploy.some((step) => step.includes("updated local .env.selfhosted"))).toBe(true);
     expect(postdeploy.some((step) => step.includes("remote-ops.js deploy"))).toBe(true);
+    expect(postdeploy.some((step) => step.includes("redeem-smoke"))).toBe(true);
     expect(postdeploy.some((step) => step.includes("crypto-topup-worker.js"))).toBe(true);
     expect(postdeploy.some((step) => step.includes("audit-anchor-smoke.js"))).toBe(true);
   });

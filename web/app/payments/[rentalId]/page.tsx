@@ -7,7 +7,9 @@ import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { formatPaymentMethodLabel } from "@/lib/payment-records";
 import { workerFetch } from "@/lib/api/client";
+import { normalizeSubscriptionValue } from "@/lib/config/generator";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import { CenteredStatus } from "@/components/layout/CenteredStatus";
 import { Badge, Button, Card, useToast } from "@/components/ui";
 
 interface RentalDetail {
@@ -39,6 +41,7 @@ export default function PaymentRentalDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const visibleSubscription = useMemo(() => normalizeSubscriptionValue(subscription, "universal"), [subscription]);
 
   useEffect(() => {
     if (!token) {
@@ -91,10 +94,20 @@ export default function PaymentRentalDetailPage() {
       if (subscriptionResult.status === "fulfilled") {
         const subscriptionResponse = subscriptionResult.value;
         const subscriptionPayload = await subscriptionResponse.json().catch(() => null);
-        if (subscriptionResponse.ok && !subscriptionPayload?.error) {
-          setSubscription(subscriptionPayload.subscription || null);
+        const normalizedSubscription = normalizeSubscriptionValue(subscriptionPayload?.subscription, "universal");
+        const notReadyMessage = isZh
+          ? "节点还没部署成功，暂不提供可复制的订阅链接。"
+          : "The node is not fully deployed yet, so the copyable subscription link is unavailable.";
+
+        if (subscriptionResponse.ok && !subscriptionPayload?.error && normalizedSubscription) {
+          setSubscription(normalizedSubscription);
         } else {
-          setSubscriptionError(subscriptionPayload?.error || (isZh ? "节点链接暂时不可用。" : "The node link is temporarily unavailable."));
+          setSubscription(null);
+          setSubscriptionError(
+            (subscriptionResponse.status === 202 || subscriptionResponse.status === 409 || !normalizedSubscription)
+              ? notReadyMessage
+              : (subscriptionPayload?.error || (isZh ? "节点链接暂时不可用。" : "The node link is temporarily unavailable."))
+          );
         }
       } else {
         setSubscriptionError(
@@ -163,10 +176,10 @@ export default function PaymentRentalDetailPage() {
   }, [isZh, rental, statusLabels]);
 
   const handleCopySubscription = async () => {
-    if (!subscription) {
+    if (!visibleSubscription) {
       return;
     }
-    await navigator.clipboard?.writeText(subscription);
+    await navigator.clipboard?.writeText(visibleSubscription);
     showToast(isZh ? "已复制节点链接。" : "Node link copied.", "success");
   };
 
@@ -191,7 +204,7 @@ export default function PaymentRentalDetailPage() {
           />
         )}
       >
-        <StatusScreen
+        <CenteredStatus
           eyebrow="Payments"
           title={isZh ? "正在加载节点详情。" : "Loading node details."}
           body={isZh ? "正在同步节点状态与订阅链接。" : "Syncing node state and subscription link."}
@@ -214,7 +227,7 @@ export default function PaymentRentalDetailPage() {
           />
         )}
       >
-        <StatusScreen
+        <CenteredStatus
           eyebrow="Payments"
           title={isZh ? "节点详情暂时不可用。" : "Node details are temporarily unavailable."}
           body={error || (isZh ? "没有找到这条节点记录。" : "No rental record was found for this payment.")}
@@ -300,7 +313,7 @@ export default function PaymentRentalDetailPage() {
               </p>
             </div>
 
-            {subscription ? (
+            {visibleSubscription ? (
               <>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -321,7 +334,7 @@ export default function PaymentRentalDetailPage() {
                     {isZh ? "返回支付记录" : "Back to payments"}
                   </Button>
                 </div>
-                <div className="code-block break-all">{subscription}</div>
+                <div className="code-block break-all">{visibleSubscription}</div>
               </>
             ) : (
               <div className="rounded-[1.5rem] border border-dashed border-black/10 bg-muted/30 p-4 text-sm leading-7 text-muted-foreground">
@@ -401,39 +414,6 @@ function DetailItem({
       <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
       <div className={`mt-2 text-sm font-medium ${mono ? "break-all font-mono" : "break-words"}`}>{value}</div>
     </div>
-  );
-}
-
-function StatusScreen({
-  eyebrow,
-  title,
-  body,
-  tone,
-  action,
-  pulse = false,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  tone: "neutral" | "danger";
-  action?: React.ReactNode;
-  pulse?: boolean;
-}) {
-  const accent =
-    tone === "danger"
-      ? "bg-red-50 text-red-600"
-      : "bg-primary/10 text-primary";
-
-  return (
-    <Card className="mx-auto max-w-2xl p-8 text-center">
-      <div className={`mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full text-sm font-semibold ${accent} ${pulse ? "animate-pulse" : ""}`}>
-        AX
-      </div>
-      <div className="section-eyebrow">{eyebrow}</div>
-      <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">{title}</h2>
-      <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-muted-foreground">{body}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
-    </Card>
   );
 }
 

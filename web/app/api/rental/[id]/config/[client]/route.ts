@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateVlessRealityConfig, generateHysteria2Config } from "@/lib/config/generator";
+import { generateVlessRealityConfig, generateHysteria2Config, normalizeRentalConfig } from "@/lib/config/generator";
 
 // Get rental config formatted for a specific client
 // GET /api/rental/[id]/config/[client]
@@ -41,11 +41,16 @@ export async function GET(
   }
 
   const rawConfig = await res.json();
+  const validation = normalizeRentalConfig(rawConfig);
+
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.error }, { status: validation.status });
+  }
 
   // Generate client-specific config
-  const config = rawConfig.protocol === "vless-reality"
-    ? generateVlessRealityConfig(rawConfig)
-    : generateHysteria2Config(rawConfig);
+  const config = validation.config.protocol === "vless-reality"
+    ? generateVlessRealityConfig(validation.config)
+    : generateHysteria2Config(validation.config);
 
   const clientKey = client.replace("-", "") as keyof typeof config;
 

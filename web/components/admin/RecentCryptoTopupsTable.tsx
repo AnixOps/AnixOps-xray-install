@@ -12,7 +12,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Badge, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
+import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
 import { cn } from "@/components/ui/utils";
 import { isFormalRelease } from "@/lib/release-profile";
 
@@ -31,11 +31,13 @@ export interface RecentCryptoTopupRow {
 
 interface RecentCryptoTopupsTableProps {
   rows: RecentCryptoTopupRow[];
+  onOpenTopup?: (topupId: string) => void;
+  isZh?: boolean;
 }
 
-export function RecentCryptoTopupsTable({ rows }: RecentCryptoTopupsTableProps) {
+export function RecentCryptoTopupsTable({ rows, onOpenTopup, isZh: propIsZh = false }: RecentCryptoTopupsTableProps) {
   const { locale } = useLocaleStore();
-  const isZh = locale === "zh";
+  const isZh = propIsZh || locale === "zh";
   const formalRelease = isFormalRelease();
   const [sorting, setSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
 
@@ -104,8 +106,26 @@ export function RecentCryptoTopupsTable({ rows }: RecentCryptoTopupsTableProps) 
         header: "Created",
         cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDateTime(row.original.createdAt)}</span>,
       },
+      {
+        id: "actions",
+        header: () => null,
+        cell: ({ row }) =>
+          onOpenTopup ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenTopup(row.original.topupId)}
+              className="h-8 rounded-full border-black/10 bg-white/90 px-3 text-xs shadow-sm"
+            >
+              {isZh ? "详情" : "Details"}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          ),
+      },
     ],
-    [isZh],
+    [formalRelease, isZh, onOpenTopup],
   );
 
   const table = useReactTable({
@@ -148,7 +168,7 @@ export function RecentCryptoTopupsTable({ rows }: RecentCryptoTopupsTableProps) 
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <Table className="min-w-[1080px]">
+          <Table className="min-w-[1160px]">
             <TableHeader className="bg-muted/40 text-left text-muted-foreground">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -158,7 +178,7 @@ export function RecentCryptoTopupsTable({ rows }: RecentCryptoTopupsTableProps) 
                     const headerLabel = flexRender(header.column.columnDef.header, header.getContext());
 
                     return (
-                      <TableHead key={header.id}>
+                      <TableHead key={header.id} className={cn(header.column.id === "actions" && "text-right")}>
                         {header.isPlaceholder ? null : canSort ? (
                           <button
                             type="button"
@@ -194,6 +214,7 @@ export function RecentCryptoTopupsTable({ rows }: RecentCryptoTopupsTableProps) 
                         cell.column.id === "asset" && "min-w-[230px]",
                         cell.column.id === "status" && "min-w-[120px]",
                         cell.column.id === "txHash" && "whitespace-nowrap",
+                        cell.column.id === "actions" && "text-right",
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

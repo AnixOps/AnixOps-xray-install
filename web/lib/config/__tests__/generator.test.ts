@@ -1,9 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   encodeBase64Text,
+  decodeBase64Text,
   generateVlessRealityConfig,
   generateHysteria2Config,
   generateVlessRealitySubscription,
+  isValidSubscriptionUri,
+  isValidUniversalSubscription,
+  normalizeConfigSubscription,
+  normalizeRentalConfig,
+  normalizeSubscriptionValue,
 } from "../generator";
 
 describe("VLESS Reality config generator", () => {
@@ -198,6 +204,10 @@ describe("Hysteria2 config generator", () => {
 });
 
 describe("config generator edge cases", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("handles IPv6 addresses in VLESS Reality config", () => {
     const config = generateVlessRealityConfig({
       ip: "2001:db8::1",
@@ -266,5 +276,42 @@ describe("config generator edge cases", () => {
   it("encodes arbitrary utf-8 text to base64", () => {
     const encoded = encodeBase64Text("hello\n");
     expect(Buffer.from(encoded, "base64").toString("utf-8")).toBe("hello\n");
+  });
+
+  it("decodes base64 text", () => {
+    expect(decodeBase64Text(encodeBase64Text("hello world"))).toBe("hello world");
+  });
+
+  it("rejects incomplete rental config before generating exportable links", () => {
+    expect(normalizeRentalConfig({
+      protocol: "hysteria2",
+      ip: "1.2.3.4",
+      port: 443,
+    }).ok).toBe(false);
+
+    expect(normalizeConfigSubscription({
+      protocol: "hysteria2",
+      ip: "1.2.3.4",
+      port: 443,
+    })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("rejects universal subscriptions that decode to undefined fields", () => {
+    const broken = encodeBase64Text("hysteria2://user:undefined@undefined:undefined/?insecure=1#AnixOps\n");
+    expect(isValidUniversalSubscription(broken)).toBe(false);
+    expect(normalizeSubscriptionValue(broken, "universal")).toBeNull();
+  });
+
+  it("rejects invalid base64 universal subscriptions without throwing", () => {
+    vi.stubGlobal("Buffer", undefined);
+
+    expect(normalizeSubscriptionValue("not-base64", "universal")).toBeNull();
+    expect(isValidUniversalSubscription("not-base64")).toBe(false);
+  });
+
+  it("accepts valid raw subscription URIs", () => {
+    const raw = "hysteria2://user:strong-password@1.2.3.4:443/?insecure=1#AnixOps";
+    expect(isValidSubscriptionUri(raw)).toBe(true);
+    expect(normalizeSubscriptionValue(raw, "raw")).toBe(raw);
   });
 });

@@ -76,6 +76,20 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\"'\"'")}'`;
 }
 
+function normalizeHexTxHash(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  if (/^0x[0-9a-fA-F]{64}$/.test(raw)) {
+    return raw;
+  }
+  if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+    return `0x${raw}`;
+  }
+  throw new Error("Expected a 32-byte transaction hash.");
+}
+
 function validateEmail(email) {
   const normalized = String(email || "").trim().toLowerCase();
   if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) {
@@ -392,10 +406,29 @@ function rechargeCommand(remoteDir = DEFAULT_REMOTE_DIR) {
   ].join("\n");
 }
 
+function redeemCommand(remoteDir = DEFAULT_REMOTE_DIR) {
+  return [
+    "set -eu",
+    `docker exec -w /app ${shellQuote(SCHEDULER_CONTAINER)} node scripts/redeem-smoke.js --json`,
+  ].join("\n");
+}
+
 function auditAnchorSmokeCommand(remoteDir = DEFAULT_REMOTE_DIR) {
   return [
     "set -eu",
     `docker exec -w /app ${shellQuote(SCHEDULER_CONTAINER)} node scripts/audit-anchor-smoke.js --confirmation-mode synthetic --json`,
+  ].join("\n");
+}
+
+function auditAnchorRecoverCommand(txHash) {
+  const normalizedTxHash = normalizeHexTxHash(txHash);
+  if (!normalizedTxHash) {
+    throw new Error("Transaction hash is required.");
+  }
+
+  return [
+    "set -eu",
+    `docker exec -w /app ${shellQuote(SCHEDULER_CONTAINER)} node scripts/audit-anchor-worker.js --tx-hash ${shellQuote(normalizedTxHash)} --json`,
   ].join("\n");
 }
 
@@ -628,7 +661,9 @@ function usage() {
   node scripts/remote-ops.js health [--strict]
   node scripts/remote-ops.js smoke
   node scripts/remote-ops.js recharge [remote-dir]
+  node scripts/remote-ops.js redeem-smoke [remote-dir]
   node scripts/remote-ops.js audit-anchor-smoke [remote-dir]
+  node scripts/remote-ops.js audit-anchor-recover <txHash>
   node scripts/remote-ops.js logs [tail]
   node scripts/remote-ops.js deploy [remote-dir]
   node scripts/remote-ops.js job billing|crypto-topups|audit-anchor|compliance-stats [remote-dir]
@@ -670,8 +705,16 @@ async function main() {
     await runRemote(rechargeCommand(subcommand || DEFAULT_REMOTE_DIR));
     return;
   }
+  if (command === "redeem-smoke") {
+    await runRemote(redeemCommand(subcommand || DEFAULT_REMOTE_DIR));
+    return;
+  }
   if (command === "audit-anchor-smoke") {
     await runRemote(auditAnchorSmokeCommand(subcommand || DEFAULT_REMOTE_DIR));
+    return;
+  }
+  if (command === "audit-anchor-recover") {
+    await runRemote(auditAnchorRecoverCommand(subcommand));
     return;
   }
   if (command === "logs") {
@@ -721,6 +764,7 @@ if (require.main === module) {
 module.exports = {
   deployCommand,
   auditAnchorSmokeCommand,
+  auditAnchorRecoverCommand,
   diagnoseProvisionUrl,
   isLoopbackUrl,
   healthCommand,
@@ -735,6 +779,7 @@ module.exports = {
   runRemote,
   shellQuote,
   rechargeCommand,
+  redeemCommand,
   smokeCommand,
   statusCommand,
   validateEmail,

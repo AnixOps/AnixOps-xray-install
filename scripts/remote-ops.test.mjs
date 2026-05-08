@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const require = createRequire(import.meta.url);
 const {
   auditAnchorSmokeCommand,
+  auditAnchorRecoverCommand,
   adminDestroyRentalCommand,
   adminSearchCommand,
   deployCommand,
@@ -18,6 +19,7 @@ const {
   restartCommand,
   smokeCommand,
   statusCommand,
+  redeemCommand,
   validateEmail,
   validateTail,
 } = require("./remote-ops.js");
@@ -153,11 +155,25 @@ describe("remote-ops helpers", () => {
     expect(command).toContain("node scripts/recharge-smoke.js --json");
   });
 
+  it("builds a redeem smoke command that runs the dedicated verifier", () => {
+    const command = redeemCommand("/opt/anixops-selfhosted");
+
+    expect(command).toContain("docker exec -w /app 'anixops-scheduler-audit' node scripts/redeem-smoke.js --json");
+    expect(command).toContain("node scripts/redeem-smoke.js --json");
+  });
+
   it("builds an audit anchor smoke command that runs the dedicated verifier", () => {
     const command = auditAnchorSmokeCommand("/opt/anixops-selfhosted");
 
     expect(command).toContain("docker exec -w /app 'anixops-scheduler-audit' node scripts/audit-anchor-smoke.js --confirmation-mode synthetic --json");
     expect(command).toContain("node scripts/audit-anchor-smoke.js --confirmation-mode synthetic --json");
+  });
+
+  it("builds an audit anchor recovery command that reuses an existing tx hash", () => {
+    const command = auditAnchorRecoverCommand("f03cda6f5156219b2ebc090835eb944406295039d6928ba0b870e0450bd879ea");
+
+    expect(command).toContain("docker exec -w /app 'anixops-scheduler-audit' node scripts/audit-anchor-worker.js --tx-hash '0xf03cda6f5156219b2ebc090835eb944406295039d6928ba0b870e0450bd879ea' --json");
+    expect(() => auditAnchorRecoverCommand("not-a-hash")).toThrow("transaction hash");
   });
 
   it("builds admin search and destroy commands that use the API secret", () => {

@@ -98,6 +98,125 @@ function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+type NormalizedProvisionedConfig =
+  | {
+    protocol: "vless-reality";
+    ip: string;
+    port: number;
+    uuid: string;
+    serverName: string;
+    publicKey: string;
+    shortId: string;
+  }
+  | {
+    protocol: "hysteria2";
+    ip: string;
+    port: number;
+    password: string;
+    insecure: boolean;
+    obfs?: string;
+  };
+
+function normalizeProvisionConfigString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeProvisionConfigPort(value: unknown) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 && String(parsed) === trimmed) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizeProvisionConfigBoolean(value: unknown, fallback = true) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+
+  return fallback;
+}
+
+function normalizeProvisionedConfig(rawConfig: unknown): { ok: true; config: NormalizedProvisionedConfig } | { ok: false; error: string } {
+  if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
+    return { ok: false, error: "Deployment is not ready yet." };
+  }
+
+  const record = rawConfig as Record<string, unknown>;
+  const protocol = normalizeProvisionConfigString(record.protocol);
+  const ip = normalizeProvisionConfigString(record.ip);
+  const port = normalizeProvisionConfigPort(record.port);
+
+  if (!protocol || !ip || port === null) {
+    return { ok: false, error: "Deployment is not ready yet." };
+  }
+
+  if (protocol === "vless-reality") {
+    const uuid = normalizeProvisionConfigString(record.uuid);
+    const serverName = normalizeProvisionConfigString(record.serverName);
+    const publicKey = normalizeProvisionConfigString(record.publicKey);
+    const shortId = normalizeProvisionConfigString(record.shortId);
+
+    if (!uuid || !serverName || !publicKey || !shortId) {
+      return { ok: false, error: "Deployment is not ready yet." };
+    }
+
+    return {
+      ok: true,
+      config: {
+        protocol,
+        ip,
+        port,
+        uuid,
+        serverName,
+        publicKey,
+        shortId,
+      },
+    };
+  }
+
+  if (protocol === "hysteria2") {
+    const password = normalizeProvisionConfigString(record.password);
+    if (!password) {
+      return { ok: false, error: "Deployment is not ready yet." };
+    }
+
+    const obfs = normalizeProvisionConfigString(record.obfs) || undefined;
+    return {
+      ok: true,
+      config: {
+        protocol,
+        ip,
+        port,
+        password,
+        insecure: normalizeProvisionConfigBoolean(record.insecure, true),
+        ...(obfs ? { obfs } : {}),
+      },
+    };
+  }
+
+  return { ok: false, error: "Deployment is not ready yet." };
+}
+
 // Send renewal reminder via webhook (Telegram bot or generic)
 async function sendRenewalReminder(
   webhookUrl: string,
@@ -378,7 +497,16 @@ app.get("/api/rental/:id/config", verifyAuth, async (c) => {
     return c.json({ error: "Config not ready yet" }, 202);
   }
 
-  return c.json(JSON.parse(config));
+  try {
+    const parsed = JSON.parse(config);
+    const validation = normalizeProvisionedConfig(parsed);
+    if (!validation.ok) {
+      return c.json({ error: validation.error }, 409);
+    }
+    return c.json(validation.config);
+  } catch {
+    return c.json({ error: "Deployment is not ready yet." }, 409);
+  }
 });
 
 // Pause rental (with auth)
@@ -827,7 +955,38 @@ export default {
         continue;
       }
 
-      await env.CACHE.put(`rental:${rentalId}:config`, JSON.stringify(data.config), {
+      const configValidation = normalizeProvisionedConfig(data.config);
+      if (!configValidation.ok) {
+        await env.DB.prepare(
+          "UPDATE rentals SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+        ).bind(rentalId).run();
+        await env.CACHE.delete(`rental:${rentalId}:config`);
+
+        if (env.PROVISION_SERVER_TOKEN) {
+          try {
+            await fetch(`${env.PROVISION_SERVER_URL}/api/destroy`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${env.PROVISION_SERVER_TOKEN}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                rentalId,
+                vpsId: data.vpsId,
+                ip: data.ip,
+                reason: "provision_result_incomplete",
+              }),
+            });
+          } catch {
+            // Best-effort cleanup only.
+          }
+        }
+
+        message.ack();
+        continue;
+      }
+
+      await env.CACHE.put(`rental:${rentalId}:config`, JSON.stringify(configValidation.config), {
         expirationTtl: (durationHours ?? 24) * 3600 + 3600,
       });
 

@@ -1,6 +1,6 @@
 # AnixOps 长期 API 规划
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 ## 说明
 
@@ -15,7 +15,7 @@ Last updated: 2026-05-08
 | 事项 | 当前状态 | 仍缺什么 |
 |---|---|---|
 | 真实链上充值 provider | Partial | 用户侧充值控制台已完成；还缺真实地址托管、确认监听、汇率源、对账、失败重试 |
-| 审计锚定测试链闭环 | Partial | 用户侧充值控制台已完成；还缺自托管 scheduler 常驻、首笔测试链交易、`txHash` / receipt 恢复 runbook |
+| 审计锚定测试链闭环 | Partial | 已通过 `node scripts/remote-ops.js audit-anchor-smoke` 验证 synthetic 闭环，恢复入口已补成 `node scripts/remote-ops.js audit-anchor-recover <txHash>`；还缺生产主网决策 |
 | 合规统计与运营视图 | Partial | 更细的管理端和用户端统计、导出和告警 |
 | Worker 版 API 去留 | Decision Needed | `web/workers/index.ts` 是否继续保留，还是迁移/删除 |
 

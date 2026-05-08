@@ -9,6 +9,7 @@ import { useLocaleStore } from "@/lib/i18n/store";
 import { isFormalRelease } from "@/lib/release-profile";
 import { formatRedeemCodeTypeLabel } from "@/lib/payment-records";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import { CenteredStatus } from "@/components/layout/CenteredStatus";
 import { Button, Card, Badge, Tabs, TabsContent, TabsList, TabsTrigger, useToast } from "@/components/ui";
 import { groupPaymentsByMethod } from "@/lib/payment-records";
 import { workerFetch } from "@/lib/api/client";
@@ -135,24 +136,24 @@ export default function PaymentsPage() {
         : (isZh ? "这里还没有兑换码租用记录。" : "No redeem-code rentals yet."),
       records: totals.buckets.redeem_code,
     },
-    ...(formalRelease
-      ? []
-      : [
-          {
-            key: "x402",
-            title: isZh ? "X402 直付" : "X402 direct payments",
-            description: isZh ? "历史 X402 直接支付记录。" : "Historical X402 direct payment records.",
-            empty: isZh ? "这里还没有 X402 直付记录。" : "No X402 direct payment records yet.",
-            records: totals.buckets.x402,
-          },
-          {
-            key: "legacy",
-            title: isZh ? "历史直付" : "Legacy direct payments",
-            description: isZh ? "Stripe 和更早的直接支付记录。" : "Stripe and older direct payment records.",
-            empty: isZh ? "这里还没有历史直付记录。" : "No legacy direct payments yet.",
-            records: totals.buckets.legacy,
-          },
-        ]),
+    {
+      key: "x402",
+      title: formalRelease
+        ? (isZh ? "历史 X402" : "Historical X402")
+        : (isZh ? "X402 直付" : "X402 direct payments"),
+      description: isZh ? "历史 X402 直接支付记录。" : "Historical X402 direct payment records.",
+      empty: isZh ? "这里还没有 X402 直付记录。" : "No X402 direct payment records yet.",
+      records: totals.buckets.x402,
+    },
+    {
+      key: "legacy",
+      title: formalRelease
+        ? (isZh ? "历史直付" : "Historical direct payments")
+        : (isZh ? "历史直付" : "Legacy direct payments"),
+      description: isZh ? "Stripe 和更早的直接支付记录。" : "Stripe and older direct payment records.",
+      empty: isZh ? "这里还没有历史直付记录。" : "No legacy direct payments yet.",
+      records: totals.buckets.legacy,
+    },
   ] as const;
   const defaultPaymentSection = paymentSections.find((section) => section.records.length > 0)?.key || paymentSections[0].key;
   const summaryCards = [
@@ -161,9 +162,8 @@ export default function PaymentsPage() {
     { label: isZh ? "待处理" : "Pending", value: String(totals.pending) },
     { label: isZh ? "钱包直付" : "Wallet", value: String(totals.buckets.wallet.length) },
     { label: formalRelease ? (isZh ? "CDK 单次型" : "CDK single-use") : (isZh ? "兑换码" : "Redeem code"), value: String(totals.buckets.redeem_code.length) },
-    ...(!formalRelease
-      ? [{ label: isZh ? "历史直付" : "Legacy", value: String(totals.buckets.legacy.length) }]
-      : []),
+    { label: formalRelease ? (isZh ? "历史直付" : "Historical direct") : (isZh ? "历史直付" : "Legacy"), value: String(totals.buckets.legacy.length) },
+    { label: formalRelease ? (isZh ? "历史 X402" : "Historical X402") : (isZh ? "X402 直付" : "X402"), value: String(totals.buckets.x402.length) },
   ] as const;
 
   if (loading) {
@@ -173,7 +173,7 @@ export default function PaymentsPage() {
           <PageHeader title={t("payment.history")} onBack={() => router.push("/")} />
         )}
       >
-        <StatusScreen
+        <CenteredStatus
           eyebrow="Payments"
           title={isZh ? "正在载入支付记录。" : "Loading payment history."}
           body={t("rental.loadingConfig")}
@@ -192,21 +192,23 @@ export default function PaymentsPage() {
         )}
       >
         <div className="space-y-6">
-          <StatusScreen
+          <CenteredStatus
             eyebrow="Payments"
             title={isZh ? "支付记录暂时不可用。" : "Payment history is temporarily unavailable."}
             body={error}
             tone="danger"
             action={(
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setError(null);
-                  setLoading(true);
-                }}
-              >
-                {t("common.retry")}
-              </Button>
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setError(null);
+                    setLoading(true);
+                  }}
+                >
+                  {t("common.retry")}
+                </Button>
+              </div>
             )}
           />
         </div>
@@ -222,14 +224,14 @@ export default function PaymentsPage() {
     >
       <div className="animate-rise space-y-6">
 
-        <div className={`grid gap-4 md:grid-cols-3 ${formalRelease ? "xl:grid-cols-5" : "xl:grid-cols-6"}`}>
+        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-7">
           {summaryCards.map((card) => (
             <SummaryCard key={card.label} label={card.label} value={card.value} />
           ))}
         </div>
 
         {payments.length === 0 ? (
-          <StatusScreen
+          <CenteredStatus
             eyebrow="Payments"
             title={isZh ? "这里还没有支付记录。" : "No payment records yet."}
             body={t("payment.empty")}
@@ -473,38 +475,5 @@ function NodeSnapshot({
         </Link>
       ) : null}
     </div>
-  );
-}
-
-function StatusScreen({
-  eyebrow,
-  title,
-  body,
-  tone,
-  action,
-  pulse = false,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  tone: "neutral" | "danger";
-  action?: React.ReactNode;
-  pulse?: boolean;
-}) {
-  const accent =
-    tone === "danger"
-      ? "bg-red-50 text-red-600"
-      : "bg-primary/10 text-primary";
-
-  return (
-    <Card className="mx-auto max-w-2xl p-8 text-center">
-      <div className={`mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full text-sm font-semibold ${accent} ${pulse ? "animate-pulse" : ""}`}>
-        AX
-      </div>
-      <div className="section-eyebrow">{eyebrow}</div>
-      <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">{title}</h2>
-      <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-muted-foreground">{body}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
-    </Card>
   );
 }

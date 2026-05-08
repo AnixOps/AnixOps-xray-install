@@ -10,7 +10,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Badge, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
+import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
 import { cn } from "@/components/ui/utils";
 import { isFormalRelease } from "@/lib/release-profile";
 
@@ -27,9 +27,11 @@ export interface RecentFiatTopupRow {
 
 interface RecentFiatTopupsTableProps {
   rows: RecentFiatTopupRow[];
+  onOpenTopup?: (topupId: string) => void;
+  isZh?: boolean;
 }
 
-export function RecentFiatTopupsTable({ rows }: RecentFiatTopupsTableProps) {
+export function RecentFiatTopupsTable({ rows, onOpenTopup, isZh = false }: RecentFiatTopupsTableProps) {
   const formalRelease = isFormalRelease();
   const [sorting, setSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
 
@@ -79,8 +81,26 @@ export function RecentFiatTopupsTable({ rows }: RecentFiatTopupsTableProps) {
         header: "Completed",
         cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDateTime(row.original.completedAt)}</span>,
       },
+      {
+        id: "actions",
+        header: () => null,
+        cell: ({ row }) =>
+          onOpenTopup ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenTopup(row.original.topupId)}
+              className="h-8 rounded-full border-black/10 bg-white/90 px-3 text-xs shadow-sm"
+            >
+              {isZh ? "详情" : "Details"}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          ),
+      },
     ],
-    [],
+    [formalRelease, onOpenTopup, isZh],
   );
 
   const table = useReactTable({
@@ -113,7 +133,7 @@ export function RecentFiatTopupsTable({ rows }: RecentFiatTopupsTableProps) {
         <div className="p-4 text-sm text-muted-foreground">No fiat topups yet.</div>
       ) : (
         <div className="overflow-x-auto">
-          <Table className="min-w-[1060px]">
+          <Table className="min-w-[1160px]">
             <TableHeader className="bg-muted/40 text-left text-muted-foreground">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -123,7 +143,7 @@ export function RecentFiatTopupsTable({ rows }: RecentFiatTopupsTableProps) {
                     const headerLabel = flexRender(header.column.columnDef.header, header.getContext());
 
                     return (
-                      <TableHead key={header.id}>
+                      <TableHead key={header.id} className={cn(header.column.id === "actions" && "text-right")}>
                         {header.isPlaceholder ? null : canSort ? (
                           <button
                             type="button"
@@ -158,6 +178,7 @@ export function RecentFiatTopupsTable({ rows }: RecentFiatTopupsTableProps) {
                         "px-4 py-4",
                         cell.column.id === "amount" && "text-right",
                         cell.column.id === "status" && "min-w-[120px]",
+                        cell.column.id === "actions" && "text-right",
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

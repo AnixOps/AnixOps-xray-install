@@ -10,7 +10,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Badge, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
+import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
 import { cn } from "@/components/ui/utils";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { formatWalletLedgerTypeLabel } from "@/lib/payment-records";
@@ -29,11 +29,14 @@ export interface RecentWalletLedgerRow {
 
 interface RecentWalletLedgerTableProps {
   rows: RecentWalletLedgerRow[];
+  onOpenRental?: (rentalId: string) => void;
+  onOpenTopup?: (topupId: string) => void;
+  isZh?: boolean;
 }
 
-export function RecentWalletLedgerTable({ rows }: RecentWalletLedgerTableProps) {
+export function RecentWalletLedgerTable({ rows, onOpenRental, onOpenTopup, isZh: propIsZh = false }: RecentWalletLedgerTableProps) {
   const { locale } = useLocaleStore();
-  const isZh = locale === "zh";
+  const isZh = propIsZh || locale === "zh";
   const [sorting, setSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
 
   const columns = useMemo<ColumnDef<RecentWalletLedgerRow>[]>(
@@ -97,8 +100,55 @@ export function RecentWalletLedgerTable({ rows }: RecentWalletLedgerTableProps) 
         header: "Created",
         cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDateTime(row.original.createdAt)}</span>,
       },
+      {
+        id: "actions",
+        header: () => null,
+        cell: ({ row }) => {
+          const rentalId = row.original.rentalId;
+          const topupId = row.original.topupId;
+
+          if (!rentalId && !topupId) {
+            return <span className="text-xs text-muted-foreground">-</span>;
+          }
+
+          return (
+            <div className="flex flex-wrap justify-end gap-2">
+              {rentalId ? (
+                onOpenRental ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onOpenRental(rentalId)}
+                    className="h-8 rounded-full border-black/10 bg-white/90 px-3 text-xs shadow-sm"
+                  >
+                    {isZh ? "租用" : "Rental"}
+                  </Button>
+                ) : (
+                  <span className="font-mono text-xs text-muted-foreground">{shortId(rentalId)}</span>
+                )
+              ) : null}
+              {topupId ? (
+                onOpenTopup ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onOpenTopup(topupId)}
+                    className="h-8 rounded-full border-black/10 bg-white/90 px-3 text-xs shadow-sm"
+                  >
+                    {isZh ? "充值" : "Topup"}
+                  </Button>
+                ) : (
+                  <span className="font-mono text-xs text-muted-foreground">{shortId(topupId)}</span>
+                )
+              ) : null}
+            </div>
+          );
+        },
+      },
     ],
-    [isZh],
+    [isZh, onOpenRental, onOpenTopup],
   );
 
   const table = useReactTable({
@@ -129,7 +179,7 @@ export function RecentWalletLedgerTable({ rows }: RecentWalletLedgerTableProps) 
         <div className="p-4 text-sm text-muted-foreground">No wallet ledger entries yet.</div>
       ) : (
         <div className="overflow-x-auto">
-          <Table className="min-w-[1180px]">
+          <Table className="min-w-[1320px]">
             <TableHeader className="bg-muted/40 text-left text-muted-foreground">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -139,7 +189,7 @@ export function RecentWalletLedgerTable({ rows }: RecentWalletLedgerTableProps) 
                     const headerLabel = flexRender(header.column.columnDef.header, header.getContext());
 
                     return (
-                      <TableHead key={header.id}>
+                      <TableHead key={header.id} className={cn(header.column.id === "actions" && "text-right")}>
                         {header.isPlaceholder ? null : canSort ? (
                           <button
                             type="button"
@@ -175,6 +225,7 @@ export function RecentWalletLedgerTable({ rows }: RecentWalletLedgerTableProps) 
                         cell.column.id === "entryId" && "whitespace-nowrap",
                         cell.column.id === "amount" && "text-right",
                         cell.column.id === "balanceAfter" && "text-right",
+                        cell.column.id === "actions" && "text-right",
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

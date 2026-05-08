@@ -179,6 +179,12 @@ node scripts/compliance-stats-worker.js --json
 如果 `audit-anchor-worker.js` 的告警里已经带出 `txHash`，优先用同一个交易 hash 做人工 finalize，而不是再次发送链上交易：
 
 ```bash
+node scripts/remote-ops.js audit-anchor-recover <existing-tx-hash>
+```
+
+如果你已经在远端主机上操作，也可以直接进入 `scheduler` 容器并手动跑：
+
+```bash
 cd /opt/anixops-selfhosted
 node scripts/audit-anchor-worker.js --tx-hash <existing-tx-hash> --json
 ```

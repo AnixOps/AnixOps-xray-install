@@ -24,6 +24,7 @@
     "remote:health": "node scripts/remote-ops.js health",
     "remote:health:strict": "node scripts/remote-ops.js health --strict",
     "remote:logs": "node scripts/remote-ops.js logs",
+    "remote:redeem-smoke": "node scripts/remote-ops.js redeem-smoke",
     "remote:restart:api": "node scripts/remote-ops.js restart api",
     "remote:restart:web": "node scripts/remote-ops.js restart web",
     "remote:restart:scheduler": "node scripts/remote-ops.js restart scheduler",

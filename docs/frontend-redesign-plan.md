@@ -42,12 +42,16 @@ The following surfaces have already been moved onto the new layout and component
 - `web/components/admin/SystemHealthChecksTable.tsx`
 - `web/components/admin/SearchUsersTable.tsx`
 - `web/components/admin/SearchRentalsTable.tsx`
+- `web/components/admin/AdminActivitySection.tsx`
+- `web/components/admin/AdminCodesSection.tsx`
 - `web/components/console/ConsoleHub.tsx`
 - `web/app/admin/page.tsx`
 - `web/app/payments/page.tsx`
+- `web/app/payments/[rentalId]/page.tsx`
 - `web/components/rental/RentalWizard.tsx`
 - `web/components/rental/RentalDashboard.tsx`
 - `web/components/self-hosted/SelfHostedWizard.tsx`
+- `web/app/page.tsx`
 - `web/app/rental/success/page.tsx`
 - `web/app/rental/cancel/page.tsx`
 
@@ -82,6 +86,24 @@ This is the preferred stack for the frontend redesign:
 3. Confirm which phase the requested work belongs to.
 4. Keep the patch inside that phase unless the user explicitly asks to expand scope.
 5. Preserve existing API contracts and user-visible business behavior unless the task says otherwise.
+
+## Phase 0 Inventory
+
+Before changing UI code, map the current surfaces and note which ones still use the older visual language:
+
+- `web/components/ui/*`
+- `web/components/layout/*`
+- `web/components/console/ConsoleHub.tsx`
+- `web/components/console/*`
+- `web/components/admin/*`
+- `web/components/rental/RentalWizard.tsx`
+- `web/components/rental/RentalDashboard.tsx`
+- `web/components/self-hosted/SelfHostedWizard.tsx`
+- `web/app/page.tsx`
+- `web/app/admin/page.tsx`
+- `web/app/payments/page.tsx`
+
+Use this inventory to decide the smallest possible migration patch. Do not widen scope beyond the selected phase unless the user asks for it explicitly.
 
 ## Dependency Plan
 
@@ -137,6 +159,7 @@ npm install @radix-ui/react-dialog @radix-ui/react-dropdown-menu @radix-ui/react
 | P2 | `web/components/rental/RentalWizard.tsx` | Revenue-critical flow, should migrate after primitives are stable |
 | P2 | `web/components/rental/RentalDashboard.tsx` | Existing customer workflow, config copy and lifecycle actions must stay reliable |
 | P2 | `web/components/self-hosted/SelfHostedWizard.tsx` | Complex step flow, benefits from shared form and status components |
+| P2 | `web/app/payments/[rentalId]/page.tsx` | Payment history detail and node-link handoff, including subscription gating |
 | P3 | `web/app/page.tsx` | Public landing surface, should follow the new system after product UI is stable |
 
 ## Acceptance Criteria

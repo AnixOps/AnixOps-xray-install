@@ -8,15 +8,16 @@ Last updated: 2026-05-09
 
 测试服充值闭环已在 2026-05-08 的 `scripts/recharge-smoke.js` live run 中验收完成，因此不再列入剩余工作。
 
-用户侧 Console Wallet 充值流程已经标准化并上线。这里剩下的主要是后台钻取、汇总、生产化链路和更细的审计 / 合规展示。
+用户侧 Console Wallet 充值流程已经标准化并上线。这里剩下的主要是后台汇总、生产化链路和更细的审计 / 合规展示。
+
+后台充值钻取已经补齐：fiat topup、crypto topup 和 wallet ledger 可以在管理端统一查看详情。
 
 ## 剩余工作
 
 | 工作项 | 当前状态 | 当前缺口 | 优先级 |
 |---|---|---|---|
-| 支付和充值后台展示 | Partial | 用户侧 Console Wallet 流程已完成；管理端已拆出 payment、fiat topup、crypto topup、wallet ledger 和 audit anchor batch 视图，但更完整的钻取和汇总还需要继续补齐 | P1 |
 | 真实链上充值生产化 | Partial | 生产链、资产、真实 provider、确认监听、汇率源和对账未接 | P2 |
-| 审计 anchor 生产闭环 | Partial | 管理端已显示 anchor batch、`txHash`、receipt summary、recovery hint，并支持 verify；已补 smoke 脚本，远端测试链闭环、`txHash` 失落后的恢复 SOP、生产主网决策未完成 | P1 |
+| 审计 anchor 生产闭环 | Partial | 管理端已显示 anchor batch、`txHash`、receipt summary、recovery hint，并支持 verify；2026-05-09 已跑通 `node scripts/remote-ops.js audit-anchor-smoke` 的 synthetic 闭环，恢复入口已补成 `node scripts/remote-ops.js audit-anchor-recover <txHash>`，仍缺生产主网决策 | P1 |
 | 合规统计更细展示 | Partial | 管理端和控制台已展示 profile、blocked protocol、reject stats 和 sync coverage；仍可继续补导出、告警和更细的用户端统计 | P2 |
 
 ## 需要先决策的问题

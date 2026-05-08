@@ -875,6 +875,125 @@ function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+type NormalizedProvisionedConfig =
+  | {
+    protocol: "vless-reality";
+    ip: string;
+    port: number;
+    uuid: string;
+    serverName: string;
+    publicKey: string;
+    shortId: string;
+  }
+  | {
+    protocol: "hysteria2";
+    ip: string;
+    port: number;
+    password: string;
+    insecure: boolean;
+    obfs?: string;
+  };
+
+function normalizeProvisionConfigString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeProvisionConfigPort(value: unknown) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 && String(parsed) === trimmed) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizeProvisionConfigBoolean(value: unknown, fallback = true) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+
+  return fallback;
+}
+
+function normalizeProvisionedConfig(rawConfig: unknown): { ok: true; config: NormalizedProvisionedConfig } | { ok: false; error: string } {
+  if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
+    return { ok: false, error: "Deployment is not ready yet." };
+  }
+
+  const record = rawConfig as Record<string, unknown>;
+  const protocol = normalizeProvisionConfigString(record.protocol);
+  const ip = normalizeProvisionConfigString(record.ip);
+  const port = normalizeProvisionConfigPort(record.port);
+
+  if (!protocol || !ip || port === null) {
+    return { ok: false, error: "Deployment is not ready yet." };
+  }
+
+  if (protocol === "vless-reality") {
+    const uuid = normalizeProvisionConfigString(record.uuid);
+    const serverName = normalizeProvisionConfigString(record.serverName);
+    const publicKey = normalizeProvisionConfigString(record.publicKey);
+    const shortId = normalizeProvisionConfigString(record.shortId);
+
+    if (!uuid || !serverName || !publicKey || !shortId) {
+      return { ok: false, error: "Deployment is not ready yet." };
+    }
+
+    return {
+      ok: true,
+      config: {
+        protocol,
+        ip,
+        port,
+        uuid,
+        serverName,
+        publicKey,
+        shortId,
+      },
+    };
+  }
+
+  if (protocol === "hysteria2") {
+    const password = normalizeProvisionConfigString(record.password);
+    if (!password) {
+      return { ok: false, error: "Deployment is not ready yet." };
+    }
+
+    const obfs = normalizeProvisionConfigString(record.obfs) || undefined;
+    return {
+      ok: true,
+      config: {
+        protocol,
+        ip,
+        port,
+        password,
+        insecure: normalizeProvisionConfigBoolean(record.insecure, true),
+        ...(obfs ? { obfs } : {}),
+      },
+    };
+  }
+
+  return { ok: false, error: "Deployment is not ready yet." };
+}
+
 async function issueSession(userId: string): Promise<string> {
   const token = randomUUID();
   await redis.setex(`session:${token}`, 86400 * 30, userId);
@@ -2062,7 +2181,16 @@ app.get("/api/rental/:id/config", verifyAuth, async (c) => {
     return c.json({ error: "Config not ready yet" }, 202);
   }
 
-  return c.json(JSON.parse(config));
+  try {
+    const parsed = JSON.parse(config);
+    const validation = normalizeProvisionedConfig(parsed);
+    if (!validation.ok) {
+      return c.json({ error: validation.error }, 409);
+    }
+    return c.json(validation.config);
+  } catch {
+    return c.json({ error: "Deployment is not ready yet." }, 409);
+  }
 });
 
 app.post("/api/rental/:id/pause", verifyAuth, async (c) => {
@@ -3288,6 +3416,199 @@ function getAdminActor(c: { req: { header: (name: string) => string | undefined 
   return c.req.header("X-API-Secret") === env.API_SECRET ? "api-secret" : null;
 }
 
+type AdminTopupLedgerRow = {
+  id: string;
+  userId: string;
+  email: string | null;
+  type: string;
+  amount: number;
+  currency: string | null;
+  rentalId: string | null;
+  topupId: string | null;
+  balanceAfter: number;
+  idempotencyKey: string;
+  createdAt: Date | string | null;
+};
+
+function serializeAdminTopupLedgerRow(row: AdminTopupLedgerRow) {
+  return {
+    id: row.id,
+    userId: row.userId,
+    email: row.email,
+    type: row.type,
+    amount: Number(row.amount ?? 0),
+    currency: row.currency || "usd",
+    rentalId: row.rentalId,
+    topupId: row.topupId,
+    balanceAfter: Number(row.balanceAfter ?? 0),
+    idempotencyKey: row.idempotencyKey,
+    createdAt: consoleToIso(row.createdAt),
+  };
+}
+
+async function getAdminTopupDetail(topupId: string) {
+  await ensureWalletSchema();
+
+  const fiatTopups = await db.select({
+    id: topups.id,
+    userId: topups.userId,
+    email: users.email,
+    provider: topups.provider,
+    amount: topups.amount,
+    currency: topups.currency,
+    status: topups.status,
+    stripeSessionId: topups.stripeSessionId,
+    createdAt: topups.createdAt,
+    completedAt: topups.completedAt,
+    updatedAt: topups.updatedAt,
+  })
+    .from(topups)
+    .leftJoin(users, eq(topups.userId, users.id))
+    .where(eq(topups.id, topupId))
+    .limit(1);
+
+  if (fiatTopups.length > 0) {
+    const ledgerRows = await db.select({
+      id: walletLedger.id,
+      userId: walletLedger.userId,
+      email: users.email,
+      type: walletLedger.type,
+      amount: walletLedger.amount,
+      currency: walletLedger.currency,
+      rentalId: walletLedger.rentalId,
+      topupId: walletLedger.topupId,
+      balanceAfter: walletLedger.balanceAfter,
+      idempotencyKey: walletLedger.idempotencyKey,
+      createdAt: walletLedger.createdAt,
+    })
+      .from(walletLedger)
+      .leftJoin(users, eq(walletLedger.userId, users.id))
+      .where(eq(walletLedger.topupId, topupId))
+      .orderBy(desc(walletLedger.createdAt))
+      .limit(1);
+
+    const topup = fiatTopups[0];
+    return {
+      kind: "fiat" as const,
+      topup: {
+        kind: "fiat" as const,
+        id: topup.id,
+        userId: topup.userId,
+        email: topup.email,
+        provider: topup.provider,
+        amount: Number(topup.amount ?? 0),
+        currency: topup.currency || "usd",
+        status: topup.status,
+        stripeSessionId: topup.stripeSessionId,
+        createdAt: consoleToIso(topup.createdAt),
+        completedAt: consoleToIso(topup.completedAt),
+        updatedAt: consoleToIso(topup.updatedAt),
+      },
+      walletLedger: ledgerRows[0] ? serializeAdminTopupLedgerRow(ledgerRows[0]) : null,
+    };
+  }
+
+  await ensureCryptoTopupSchema();
+  const cryptoTopupsRows = await db.select({
+    id: cryptoTopups.id,
+    userId: cryptoTopups.userId,
+    email: users.email,
+    asset: cryptoTopups.asset,
+    network: cryptoTopups.network,
+    rail: cryptoTopups.rail,
+    address: cryptoTopups.address,
+    expectedAmount: cryptoTopups.expectedAmount,
+    receivedAmount: cryptoTopups.receivedAmount,
+    fiatAmount: cryptoTopups.fiatAmount,
+    currency: cryptoTopups.currency,
+    status: cryptoTopups.status,
+    txHash: cryptoTopups.txHash,
+    confirmations: cryptoTopups.confirmations,
+    ledgerId: cryptoTopups.ledgerId,
+    createdAt: cryptoTopups.createdAt,
+    expiresAt: cryptoTopups.expiresAt,
+    completedAt: cryptoTopups.completedAt,
+    updatedAt: cryptoTopups.updatedAt,
+  })
+    .from(cryptoTopups)
+    .leftJoin(users, eq(cryptoTopups.userId, users.id))
+    .where(eq(cryptoTopups.id, topupId))
+    .limit(1);
+
+  if (cryptoTopupsRows.length === 0) {
+    return null;
+  }
+
+  const cryptoTopup = cryptoTopupsRows[0];
+  const ledgerRows = await db.select({
+    id: walletLedger.id,
+    userId: walletLedger.userId,
+    email: users.email,
+    type: walletLedger.type,
+    amount: walletLedger.amount,
+    currency: walletLedger.currency,
+    rentalId: walletLedger.rentalId,
+    topupId: walletLedger.topupId,
+    balanceAfter: walletLedger.balanceAfter,
+    idempotencyKey: walletLedger.idempotencyKey,
+    createdAt: walletLedger.createdAt,
+  })
+    .from(walletLedger)
+    .leftJoin(users, eq(walletLedger.userId, users.id))
+    .where(eq(walletLedger.topupId, topupId))
+    .orderBy(desc(walletLedger.createdAt))
+    .limit(1);
+
+  let linkedLedger = ledgerRows[0] || null;
+  if (!linkedLedger && cryptoTopup.ledgerId) {
+    const fallbackLedgerRows = await db.select({
+      id: walletLedger.id,
+      userId: walletLedger.userId,
+      email: users.email,
+      type: walletLedger.type,
+      amount: walletLedger.amount,
+      currency: walletLedger.currency,
+      rentalId: walletLedger.rentalId,
+      topupId: walletLedger.topupId,
+      balanceAfter: walletLedger.balanceAfter,
+      idempotencyKey: walletLedger.idempotencyKey,
+      createdAt: walletLedger.createdAt,
+    })
+      .from(walletLedger)
+      .leftJoin(users, eq(walletLedger.userId, users.id))
+      .where(eq(walletLedger.id, cryptoTopup.ledgerId))
+      .limit(1);
+    linkedLedger = fallbackLedgerRows[0] || null;
+  }
+
+  return {
+    kind: "crypto" as const,
+    topup: {
+      kind: "crypto" as const,
+      id: cryptoTopup.id,
+      userId: cryptoTopup.userId,
+      email: cryptoTopup.email,
+      asset: cryptoTopup.asset,
+      network: cryptoTopup.network,
+      rail: cryptoTopup.rail || "wallet",
+      address: cryptoTopup.address,
+      expectedAmount: Number(cryptoTopup.expectedAmount ?? 0),
+      receivedAmount: cryptoTopup.receivedAmount == null ? null : Number(cryptoTopup.receivedAmount),
+      fiatAmount: Number(cryptoTopup.fiatAmount ?? 0),
+      currency: cryptoTopup.currency || "usd",
+      status: cryptoTopup.status,
+      txHash: cryptoTopup.txHash || null,
+      confirmations: Number(cryptoTopup.confirmations || 0),
+      ledgerId: cryptoTopup.ledgerId || null,
+      createdAt: consoleToIso(cryptoTopup.createdAt),
+      expiresAt: consoleToIso(cryptoTopup.expiresAt),
+      completedAt: consoleToIso(cryptoTopup.completedAt),
+      updatedAt: consoleToIso(cryptoTopup.updatedAt),
+    },
+    walletLedger: linkedLedger ? serializeAdminTopupLedgerRow(linkedLedger) : null,
+  };
+}
+
 function parseBoundedLimit(value: string | undefined, fallback: number, max: number) {
   const parsed = Number(value || fallback);
   return Number.isFinite(parsed) ? Math.min(max, Math.max(1, Math.floor(parsed))) : fallback;
@@ -4022,6 +4343,19 @@ app.delete("/api/admin/redeem-codes/:id", async (c) => {
 
   await db.delete(redeemCodes).where(eq(redeemCodes.id, id));
   return c.json({ deleted: true, id });
+});
+
+app.get("/api/admin/topups/:id", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const detail = await getAdminTopupDetail(c.req.param("id"));
+  if (!detail) {
+    return c.json({ error: "Topup not found" }, 404);
+  }
+
+  return c.json(detail);
 });
 
 app.get("/api/admin/overview", async (c) => {
@@ -5476,6 +5810,42 @@ const provisionWorker = createProvisionWorker(async (job) => {
     }
 
     const data = provisionBody as { config: Record<string, unknown>; ip: string; vpsId: string };
+    const configValidation = normalizeProvisionedConfig(data.config);
+    if (!configValidation.ok) {
+      const invalidReason = configValidation.error;
+      await insertProvisionStageAudit(rentalId, {
+        stage: "stage4-2-cache-config",
+        status: "failed",
+        message: invalidReason,
+        timestamp: new Date().toISOString(),
+        meta: { attemptId: attempt.attemptId, attempt: attempt.attemptNo, maxAttempts: attempt.maxAttempts },
+      });
+      await releaseFailedProvisioningRental(rentalId, invalidReason, "failed");
+      try {
+        await postProvisionServer("/api/destroy", {
+          rentalId,
+          vpsId: data.vpsId,
+          ip: data.ip,
+          attemptId: attempt.attemptId,
+          reason: "provision_result_incomplete",
+        });
+      } catch (error) {
+        console.error("Failed to destroy incomplete provision result:", rentalId, getErrorMessage(error));
+      }
+      await finishProvisionAttempt({
+        attemptId: attempt.attemptId,
+        rentalId,
+        status: "failed",
+        failureReason: invalidReason,
+        vpsId: data.vpsId,
+        ip: data.ip,
+        cloudCostAmount: attemptCloudCostAmount,
+        cloudCostCurrency: "usd",
+      });
+      attemptFinished = true;
+      console.error("Provisioned config rejected because it is incomplete:", rentalId);
+      return;
+    }
 
     // Cache config
     const ttl = ((durationHours ?? 24) + 1) * 3600;
@@ -5486,7 +5856,7 @@ const provisionWorker = createProvisionWorker(async (job) => {
       timestamp: new Date().toISOString(),
       meta: { ttl, attemptId: attempt.attemptId, attempt: attempt.attemptNo, maxAttempts: attempt.maxAttempts },
     });
-    await setCache(`rental:${rentalId}:config`, data.config, ttl);
+    await setCache(`rental:${rentalId}:config`, configValidation.config, ttl);
 
     // Update rental
     const updated = await db.update(rentals)

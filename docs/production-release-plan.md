@@ -125,6 +125,22 @@ recharge_channels:
 4. 清理生产 UI 里的 `Stripe`、链上充值和其他未启用入口。
 5. 用 tag 发布正式版快照，不单独长期维护一个 `production` 分支。
 
+## 发布验证
+
+正式版部署后，至少跑一遍下面的远端验收：
+
+```bash
+node scripts/remote-ops.js health --strict
+node scripts/remote-ops.js redeem-smoke
+node scripts/remote-ops.js smoke
+```
+
+`redeem-smoke` 的结果应该同时证明：
+
+- `duration` CDK 能生成租用并暴露订阅链接。
+- `wallet` CDK 能正确写入余额账本。
+- 兑换后的节点详情页不会把未就绪订阅链接暴露成可复制内容。
+
 ## 推荐版本管理
 
 - `main` 继续作为集成主线。

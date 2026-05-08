@@ -12,6 +12,7 @@ import { isFormalRelease } from "@/lib/release-profile";
 import { formatTopupRailDescription, formatTopupRailLabel } from "@/lib/topup-rails";
 import { Badge, Button, Card, Input, Label, Tabs, TabsList, TabsTrigger } from "@/components/ui";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import { CenteredStatus } from "@/components/layout/CenteredStatus";
 import { WalletEntriesTable } from "@/components/console/WalletEntriesTable";
 import { CryptoTopupsTable } from "@/components/console/CryptoTopupsTable";
 import { ConsoleNodesTable } from "@/components/console/ConsoleNodesTable";
@@ -500,34 +501,33 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
           </TabsList>
         </Tabs>
 
-        {loading && <LoadingState />}
-        {error && !loading && <ErrorState message={error} onRetry={() => void load()} />}
+        {loading && (
+          <CenteredStatus
+            eyebrow="Workspace"
+            title="Syncing console data"
+            body="Wallet, nodes, audit, and referrals are loading from the self-hosted API."
+            tone="neutral"
+            pulse
+            iconLabel="AX"
+          />
+        )}
+        {error && !loading && (
+          <CenteredStatus
+            eyebrow="Workspace"
+            title="Failed to load console data"
+            body={error}
+            tone="danger"
+            action={(
+              <Button variant="outline" onClick={() => void load()}>
+                Retry
+              </Button>
+            )}
+            iconLabel="AX"
+          />
+        )}
         {!loading && !error && data && <ConsoleContent view={view} data={data} onReload={() => void load({ quiet: true })} />}
       </section>
     </WorkspaceShell>
-  );
-}
-
-function LoadingState() {
-  return (
-    <Card className="p-6">
-      <div className="h-4 w-40 animate-pulse rounded bg-muted" />
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="h-24 animate-pulse rounded-md bg-muted" />
-        <div className="h-24 animate-pulse rounded-md bg-muted" />
-        <div className="h-24 animate-pulse rounded-md bg-muted" />
-      </div>
-    </Card>
-  );
-}
-
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <Card className="p-6">
-      <div className="font-medium text-destructive">Failed to load</div>
-      <p className="mt-2 text-sm text-muted-foreground">{message}</p>
-      <Button className="mt-4" variant="outline" onClick={onRetry}>Retry</Button>
-    </Card>
   );
 }
 

@@ -7,7 +7,12 @@ import { WizardSummaryRow as SummaryRow } from "@/components/layout/WizardLayout
 import { useLocaleStore } from "@/lib/i18n/store";
 import { RENTAL_PLANS } from "@/lib/deploy/types";
 import { workerFetch } from "@/lib/api/client";
-import { generateHysteria2Config, generateVlessRealityConfig } from "@/lib/config/generator";
+import {
+  generateHysteria2Config,
+  generateVlessRealityConfig,
+  normalizeRentalConfig,
+  normalizeSubscriptionValue,
+} from "@/lib/config/generator";
 
 interface RentalData {
   id: string;
@@ -44,6 +49,7 @@ export function RentalDashboard({
   const [renewPlan, setRenewPlan] = useState<(typeof RENTAL_PLANS)[number] | null>(null);
   const [subscription, setSubscription] = useState<string | null>(null);
   const [subscriptionFormat, setSubscriptionFormat] = useState<"universal" | "raw">("universal");
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const { t, tPlan, locale } = useLocaleStore();
   const { showToast } = useToast();
   const router = useRouter();
@@ -54,21 +60,41 @@ export function RentalDashboard({
       workerFetch(`/api/rental/${rental.id}/config`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.error) {
-            setConfigError(data.error);
+        .then(async (res) => {
+          const data = await res.json().catch(() => null);
+          const notReadyMessage = isZh
+            ? "节点还没部署成功，暂不提供客户端配置。"
+            : "The node is not fully deployed yet, so client exports are unavailable.";
+
+          if (!res.ok || data?.error) {
+            setConfig(null);
+            setConfigError(
+              res.status === 202 || res.status === 409
+                ? notReadyMessage
+                : (data?.error || t("common.error.generic"))
+            );
             return;
           }
-          const generated =
-            rental.protocol === "vless-reality"
-              ? generateVlessRealityConfig(data)
-              : generateHysteria2Config(data);
+
+          const validation = normalizeRentalConfig(data);
+          if (!validation.ok) {
+            setConfig(null);
+            setConfigError(notReadyMessage);
+            return;
+          }
+
+          const generated = validation.config.protocol === "vless-reality"
+            ? generateVlessRealityConfig(validation.config)
+            : generateHysteria2Config(validation.config);
           setConfig(generated);
+          setConfigError(null);
         })
-        .catch((e) => setConfigError(e instanceof Error ? e.message : "Failed to load config"));
+        .catch((e) => {
+          setConfig(null);
+          setConfigError(e instanceof Error ? e.message : "Failed to load config");
+        });
     }
-  }, [config, rental.id, rental.protocol, rental.status, token]);
+  }, [config, isZh, rental.id, rental.protocol, rental.status, t, token]);
 
   useEffect(() => {
     if (timeLeft <= 0) return;
@@ -106,6 +132,10 @@ export function RentalDashboard({
     if (!config) return "";
     return config[selectedClient] || "";
   }, [config, selectedClient]);
+
+  const visibleSubscription = useMemo(() => {
+    return normalizeSubscriptionValue(subscription, subscriptionFormat);
+  }, [subscription, subscriptionFormat]);
 
   const clientLabels = {
     clashMeta: t("client.clashMeta"),
@@ -199,24 +229,41 @@ export function RentalDashboard({
       const res = await workerFetch(`/api/rental/${rental.id}/subscription?format=${format}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      const notReadyMessage = isZh
+        ? "节点还没部署成功，暂不提供可复制的订阅链接。"
+        : "The node is not fully deployed yet, so the copyable subscription link is unavailable.";
+
       if (format === "raw") {
         const text = await res.text();
-        if (!res.ok) {
-          showToast(text || t("common.error.generic"), "error");
+        const normalizedSubscription = normalizeSubscriptionValue(text, format);
+        if (!res.ok || !normalizedSubscription) {
+          setSubscription(null);
+          setSubscriptionError(res.status === 202 || res.status === 409 || !normalizedSubscription ? notReadyMessage : (text || t("common.error.generic")));
+          showToast(res.status === 202 || res.status === 409 || !normalizedSubscription ? notReadyMessage : (text || t("common.error.generic")), "error");
           return;
         }
         setSubscriptionFormat(format);
-        setSubscription(text);
+        setSubscription(normalizedSubscription);
+        setSubscriptionError(null);
       } else {
-        const data = await res.json();
-        if (data.error) {
-          showToast(data.error, "error");
+        const data = await res.json().catch(() => null);
+        const normalizedSubscription = normalizeSubscriptionValue(data?.subscription, format);
+        if (!res.ok || data?.error || !normalizedSubscription) {
+          setSubscription(null);
+          const message = res.status === 202 || res.status === 409 || !normalizedSubscription
+            ? notReadyMessage
+            : (data?.error || t("common.error.generic"));
+          setSubscriptionError(message);
+          showToast(message, "error");
           return;
         }
         setSubscriptionFormat(format);
-        setSubscription(data.subscription || null);
+        setSubscription(normalizedSubscription);
+        setSubscriptionError(null);
       }
     } catch {
+      setSubscription(null);
+      setSubscriptionError(t("common.error.generic"));
       showToast(t("common.error.generic"), "error");
     }
   };
@@ -343,37 +390,44 @@ export function RentalDashboard({
                 </Button>
               </div>
 
-              {subscription && (
-                <div className="space-y-3 rounded-[1.6rem] border border-black/5 bg-white/70 p-4">
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant={subscriptionFormat === "universal" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleLoadSubscription("universal")}
-                    >
-                      {t("subscription.format.universal")}
-                    </Button>
-                    <Button
-                      variant={subscriptionFormat === "raw" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleLoadSubscription("raw")}
-                    >
-                      {t("subscription.format.raw")}
-                    </Button>
+              <div className="space-y-3 rounded-[1.6rem] border border-black/5 bg-white/70 p-4">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={subscriptionFormat === "universal" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleLoadSubscription("universal")}
+                  >
+                    {t("subscription.format.universal")}
+                  </Button>
+                  <Button
+                    variant={subscriptionFormat === "raw" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleLoadSubscription("raw")}
+                  >
+                    {t("subscription.format.raw")}
+                  </Button>
+                  {visibleSubscription && (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        navigator.clipboard?.writeText(subscription);
+                        navigator.clipboard?.writeText(visibleSubscription);
                         showToast(t("common.copied"), "success");
                       }}
                     >
                       {t("subscription.copy")}
                     </Button>
-                  </div>
-                  <div className="code-block break-all">{subscription}</div>
+                  )}
                 </div>
-              )}
+                {subscriptionError ? (
+                  <div className="rounded-[1.25rem] border border-dashed border-black/10 bg-white/70 px-4 py-3 text-sm leading-6 text-muted-foreground">
+                    {subscriptionError}
+                  </div>
+                ) : null}
+                {visibleSubscription ? (
+                  <div className="code-block break-all">{visibleSubscription}</div>
+                ) : null}
+              </div>
             </Card>
           )}
 
