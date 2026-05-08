@@ -94,6 +94,23 @@ node scripts/bootstrap-evm-testnet.js \
 - 如果带 `--write-env`，会直接更新本地 `.env.selfhosted`
 - 如果加了 `--deploy-mock-usdt`，还会直接填好 `CRYPTO_TOPUP_TOKEN_ADDRESS`
 
+## 步骤 6：跑充值闭环验收
+
+在测试链和 `mock USDT` 都准备好以后，先用新的充值验收脚本做一轮端到端检查：
+
+```bash
+node scripts/recharge-smoke.js \
+  --env .env.selfhosted \
+  --email qa1@example.com \
+  --confirmation-mode auto
+```
+
+说明：
+
+- 如果你只想验证非链路的充值和租用流程，可以把 `--confirmation-mode auto` 改成 `synthetic`。
+- 如果要验证真实测试链转账，保持 `auto`，并确保 `CRYPTO_TOPUP_RPC_URL`、`CRYPTO_TOPUP_SIGNER_PRIVATE_KEY`、`CRYPTO_TOPUP_TOKEN_ADDRESS` 和 `CRYPTO_TOPUP_TOKEN_DECIMALS` 已配置。
+- 远端执行时也可以直接跑 `node scripts/remote-ops.js recharge`。
+
 注意：
 
 - CLI 参数优先用 `--env` 或 `--file`，不要再把 `node ... --env-file ...` 当作脚本参数示例；在 Node 22 下这个参数名会先被 Node 运行时消费。

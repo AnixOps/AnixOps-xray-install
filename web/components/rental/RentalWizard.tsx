@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useDeployStore } from "@/lib/deploy/store";
 import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { PROTOCOL_INFO, RENTAL_PLANS } from "@/lib/deploy/types";
+import type { RentalPaymentMethod } from "@/lib/rental/rules";
 import { Button, Card, Badge, Input, Label } from "@/components/ui";
 import { workerFetch } from "@/lib/api/client";
 
@@ -18,7 +20,7 @@ interface ComplianceProfile {
   blockedProtocols: string[];
 }
 
-type CheckoutPaymentMethod = "stripe" | "wallet" | "x402" | "redeem";
+type CheckoutPaymentMethod = RentalPaymentMethod;
 
 export function RentalWizard() {
   const step = useDeployStore((s) => s.step);
@@ -41,11 +43,12 @@ export function RentalWizard() {
   const isZh = locale === "zh";
 
   const [email, setEmail] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>("wallet");
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemCodeValidating, setRedeemCodeValidating] = useState(false);
   const [redeemCodeValid, setRedeemCodeValid] = useState(false);
   const [redeemCodeError, setRedeemCodeError] = useState<string | null>(null);
+  const [balanceNotice, setBalanceNotice] = useState<{ balance: number; required: number } | null>(null);
   const [processing, setProcessing] = useState(false);
   const [restored, setRestored] = useState(false);
   const [complianceProfiles, setComplianceProfiles] = useState<ComplianceProfile[]>([]);
@@ -64,8 +67,8 @@ export function RentalWizard() {
         }
         if (state.email) setEmail(state.email);
         if (state.complianceProfileId) setComplianceProfileId(state.complianceProfileId);
-        if (["stripe", "wallet", "x402", "redeem"].includes(state.paymentMethod)) {
-          setPaymentMethod(state.paymentMethod);
+        if (state.paymentMethod === "wallet" || state.paymentMethod === "redeem" || state.paymentMethod === "redeem_code") {
+          setPaymentMethod(state.paymentMethod === "redeem" ? "redeem_code" : state.paymentMethod);
         }
         if (state.step) setStep(state.step);
         sessionStorage.removeItem(SESSION_KEY);
@@ -95,20 +98,6 @@ export function RentalWizard() {
       cancelled = true;
     };
   }, [complianceProfileId]);
-
-  const saveStateForRedirect = () => {
-    sessionStorage.setItem(
-      SESSION_KEY,
-      JSON.stringify({
-        protocol,
-        rentalPlanId: rentalPlan?.id,
-        email,
-        complianceProfileId,
-        paymentMethod,
-        step,
-      }),
-    );
-  };
 
   const validateRedeemCode = async () => {
     if (!redeemCode || redeemCode.length < 6) {
@@ -151,12 +140,10 @@ export function RentalWizard() {
   const selectedComplianceProfile = complianceProfiles.find((profile) => profile.id === complianceProfileId) || null;
   const selectedComplianceLabel = selectedComplianceProfile?.name || "Standard";
   const paymentMethodLabels: Record<CheckoutPaymentMethod, string> = {
-    stripe: t("payment.stripe"),
     wallet: t("payment.wallet"),
-    x402: t("payment.x402"),
-    redeem: t("payment.redeemCode"),
+    redeem_code: t("payment.redeemCode"),
   };
-  const selectedPaymentLabel = paymentMethod ? paymentMethodLabels[paymentMethod] : "—";
+  const selectedPaymentLabel = paymentMethodLabels[paymentMethod];
   const complianceBlocksProtocol = Boolean(
     protocol && selectedComplianceProfile?.blockedProtocols?.includes(protocol),
   );
@@ -164,6 +151,7 @@ export function RentalWizard() {
     setRedeemCode("");
     setRedeemCodeValid(false);
     setRedeemCodeError(null);
+    setBalanceNotice(null);
   };
 
   const protocolCards = useMemo(
@@ -386,31 +374,25 @@ export function RentalWizard() {
                   }}
                 />
                 <PaymentMethodCard
-                  active={paymentMethod === "x402"}
-                  title={t("payment.x402")}
-                  body={isZh ? "按 X402 路径记录支付，当前测试服复用测试链结算。" : "Record the payment through the X402-labeled test-chain path."}
-                  onClick={() => {
-                    setPaymentMethod("x402");
-                    clearRedeemState();
-                  }}
-                />
-                <PaymentMethodCard
-                  active={paymentMethod === "stripe"}
-                  title={t("payment.stripe")}
-                  body={isZh ? "适合标准付款与后续续费。" : "Best for standard checkout and later renewals."}
-                  onClick={() => {
-                    setPaymentMethod("stripe");
-                    clearRedeemState();
-                  }}
-                />
-                <PaymentMethodCard
-                  active={paymentMethod === "redeem"}
+                  active={paymentMethod === "redeem_code"}
                   title={t("payment.redeemCode")}
                   body={isZh ? "直接匹配兑换码时长并跳过付款。" : "Match a code to duration and skip checkout entirely."}
                   onClick={() => {
-                    setPaymentMethod("redeem");
+                    setPaymentMethod("redeem_code");
+                    setBalanceNotice(null);
                   }}
                 />
+              </div>
+              <div className="rounded-[1.35rem] border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-muted-foreground">
+                {isZh ? (
+                  <>
+                    余额充值入口在 <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">控制台钱包页</Link>，Stripe、钱包支付和 X402 都从那里进入。
+                  </>
+                ) : (
+                  <>
+                    Wallet topups live in <Link href="/console/wallet" className="font-medium text-foreground underline underline-offset-4">Console Wallet</Link>, where Stripe, wallet payment, and X402 are handled.
+                  </>
+                )}
               </div>
             </div>
           </section>
@@ -448,7 +430,7 @@ export function RentalWizard() {
             </section>
           )}
 
-          {paymentMethod === "redeem" && (
+          {paymentMethod === "redeem_code" && (
             <section className="rounded-[1.75rem] border border-black/5 bg-white/70 p-4 md:p-5">
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Input
@@ -511,6 +493,26 @@ export function RentalWizard() {
           </div>
         )}
 
+        {balanceNotice && (
+          <div className="rounded-[1.45rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <div className="font-medium">
+              {isZh
+                ? "钱包余额不足，请先充值再继续租用。"
+                : "Wallet balance is too low. Top up before continuing."}
+            </div>
+            <div className="mt-2 leading-6 text-amber-900/90">
+              {isZh
+                ? `当前余额 $${balanceNotice.balance.toFixed(2)}，最低需要 $${balanceNotice.required.toFixed(2)}。`
+                : `Current balance is $${balanceNotice.balance.toFixed(2)} and the minimum needed is $${balanceNotice.required.toFixed(2)}.`}
+            </div>
+            <div className="mt-3">
+              <Link href="/console/wallet" className="font-semibold underline underline-offset-4">
+                {isZh ? "去控制台钱包充值" : "Open Console Wallet"}
+              </Link>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3 border-t border-black/5 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <Button
             variant="outline"
@@ -523,7 +525,7 @@ export function RentalWizard() {
             {t("common.back")}
           </Button>
           <Button
-            disabled={!orderReady || processing || (paymentMethod === "redeem" && !redeemCodeValid)}
+            disabled={!orderReady || processing || (paymentMethod === "redeem_code" && !redeemCodeValid)}
             onClick={async () => {
               if (!protocol || !rentalPlan || !paymentMethod) {
                 return;
@@ -547,28 +549,9 @@ export function RentalWizard() {
                 }
 
                 setAuth(authData.userId, authData.token, email, Boolean(authData.isAdmin));
+                setBalanceNotice(null);
 
-                if (paymentMethod === "stripe") {
-                  saveStateForRedirect();
-                  const res = await workerFetch("/api/payment/checkout", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      protocol,
-                      durationHours: rentalPlan.durationHours,
-                      email,
-                      complianceProfileId,
-                    }),
-                  });
-                  const data = await res.json();
-                  if (data.error) {
-                    setError(data.error);
-                    setStatus("failed");
-                  } else if (data.url) {
-                    window.location.href = data.url;
-                    return;
-                  }
-                } else if (paymentMethod === "wallet" || paymentMethod === "x402") {
+                if (paymentMethod === "wallet") {
                   const authState = useAuthStore.getState();
                   const res = await workerFetch("/api/rental", {
                     method: "POST",
@@ -579,13 +562,19 @@ export function RentalWizard() {
                     body: JSON.stringify({
                       protocol,
                       durationHours: rentalPlan.durationHours,
-                      paymentMethod,
+                      paymentMethod: "wallet",
                       complianceProfileId,
                     }),
                   });
                   const data = await res.json();
                   if (data.error) {
                     setError(data.error);
+                    if (data.code === "WALLET_BALANCE_LOW") {
+                      setBalanceNotice({
+                        balance: Number(data.balance || 0),
+                        required: Number(data.required || 0),
+                      });
+                    }
                     setStatus("failed");
                   } else {
                     setRentalId(data.rentalId);

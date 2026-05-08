@@ -5,6 +5,7 @@ import { createWalletLedgerEntry } from "./wallet-ledger.js";
 
 const DEFAULT_CRYPTO_ASSET = "USDT";
 const DEFAULT_CRYPTO_NETWORK = "TRC20";
+const DEFAULT_CRYPTO_RAIL = "wallet";
 const TOPUP_TTL_MINUTES = 60;
 
 let ensureCryptoTopupSchemaPromise: Promise<void> | null = null;
@@ -50,6 +51,11 @@ export function normalizeCryptoNetwork(value: unknown) {
   return ["TRC20", "ERC20", "POLYGON"].includes(network) ? network : null;
 }
 
+export function normalizeCryptoRail(value: unknown) {
+  const rail = typeof value === "string" && value.trim() ? value.trim().toLowerCase() : DEFAULT_CRYPTO_RAIL;
+  return ["wallet", "x402"].includes(rail) ? rail : null;
+}
+
 export function normalizeCryptoFiatAmount(value: unknown) {
   const amount = toMoney(typeof value === "number" || typeof value === "string" ? value : 0);
   return amount >= 1 && amount <= 10000 ? amount : null;
@@ -80,6 +86,7 @@ export async function ensureCryptoTopupSchema() {
           user_id TEXT NOT NULL,
           asset TEXT NOT NULL,
           network TEXT NOT NULL,
+          rail TEXT NOT NULL DEFAULT 'wallet',
           address TEXT NOT NULL,
           expected_amount REAL NOT NULL,
           received_amount REAL,
@@ -96,6 +103,7 @@ export async function ensureCryptoTopupSchema() {
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await db.execute(sql`ALTER TABLE crypto_topups ADD COLUMN IF NOT EXISTS rail TEXT NOT NULL DEFAULT 'wallet'`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_crypto_topups_user ON crypto_topups(user_id)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_crypto_topups_status ON crypto_topups(status)`);
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_crypto_topups_tx_hash ON crypto_topups(network, tx_hash) WHERE tx_hash IS NOT NULL`);
@@ -110,6 +118,7 @@ export async function createCryptoTopup(input: {
   fiatAmount: unknown;
   asset?: unknown;
   network?: unknown;
+  rail?: unknown;
   receiverAddress?: string | null;
   uniqueExpectedAmount?: boolean;
   now?: Date;
@@ -121,8 +130,9 @@ export async function createCryptoTopup(input: {
   }
   const asset = normalizeCryptoAsset(input.asset);
   const network = normalizeCryptoNetwork(input.network);
-  if (!asset || !network) {
-    return { ok: false as const, status: 400, error: "Unsupported crypto asset or network" };
+  const rail = normalizeCryptoRail(input.rail);
+  if (!asset || !network || !rail) {
+    return { ok: false as const, status: 400, error: "Unsupported crypto asset, network, or rail" };
   }
 
   const now = input.now || new Date();
@@ -137,6 +147,7 @@ export async function createCryptoTopup(input: {
       userId: input.userId,
       asset,
       network,
+      rail,
       address: input.receiverAddress || allocateCryptoDepositAddress({ userId: input.userId, asset, network }),
       expectedAmount,
       fiatAmount,
@@ -287,6 +298,7 @@ export function formatCryptoTopup(topup: typeof cryptoTopups.$inferSelect) {
     userId: topup.userId,
     asset: topup.asset,
     network: topup.network,
+    rail: topup.rail || DEFAULT_CRYPTO_RAIL,
     address: topup.address,
     expectedAmount: toCryptoAmount(topup.expectedAmount),
     receivedAmount: topup.receivedAmount == null ? null : toCryptoAmount(topup.receivedAmount),

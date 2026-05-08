@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS crypto_topups (
     user_id TEXT NOT NULL,
     asset TEXT NOT NULL,
     network TEXT NOT NULL,
+    rail TEXT NOT NULL DEFAULT 'wallet',
     address TEXT NOT NULL,
     expected_amount REAL NOT NULL,
     received_amount REAL,
@@ -185,6 +186,8 @@ CREATE TABLE IF NOT EXISTS crypto_topups (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE crypto_topups ADD COLUMN IF NOT EXISTS rail TEXT NOT NULL DEFAULT 'wallet';
 
 CREATE INDEX IF NOT EXISTS idx_crypto_topups_user ON crypto_topups(user_id);
 CREATE INDEX IF NOT EXISTS idx_crypto_topups_status ON crypto_topups(status);

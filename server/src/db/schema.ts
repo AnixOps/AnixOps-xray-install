@@ -141,6 +141,7 @@ export const cryptoTopups = pgTable("crypto_topups", {
   userId: text("user_id").notNull(),
   asset: text("asset").notNull(),
   network: text("network").notNull(),
+  rail: text("rail").notNull().default("wallet"),
   address: text("address").notNull(),
   expectedAmount: real("expected_amount").notNull(),
   receivedAmount: real("received_amount"),

@@ -145,6 +145,58 @@ interface AdminOverviewResponse {
     status: string;
     createdAt: string;
   }>;
+  recentTopups: Array<{
+    topupId: string;
+    email: string | null;
+    provider: string;
+    amount: number;
+    currency: string;
+    status: string;
+    createdAt: string;
+    completedAt: string | null;
+  }>;
+  recentCryptoTopups: Array<{
+    topupId: string;
+    email: string | null;
+    asset: string;
+    network: string;
+    rail: string;
+    fiatAmount: number;
+    currency: string;
+    status: string;
+    txHash: string | null;
+    createdAt: string;
+  }>;
+  recentWalletLedgerEntries: Array<{
+    entryId: string;
+    email: string | null;
+    type: string;
+    amount: number;
+    currency: string;
+    rentalId: string | null;
+    topupId: string | null;
+    balanceAfter: number;
+    createdAt: string;
+  }>;
+  recentAnchorBatches: Array<{
+    batchId: string;
+    eventCount: number;
+    merkleRoot: string;
+    status: string;
+    chain: string | null;
+    txHash: string | null;
+    hasReceipt: boolean;
+    receiptSummary: {
+      blockNumber: number | null;
+      status: number | null;
+      gasUsed: string | null;
+      from: string | null;
+      to: string | null;
+    } | null;
+    submissionStartedAt: string | null;
+    createdAt: string | null;
+    anchoredAt: string | null;
+  }>;
   recentAuditEntries: Array<{
     id: number;
     rentalId: string | null;
@@ -189,6 +241,9 @@ interface AdminOverviewResponse {
     stageLogs: ProvisionStageAuditEntry[];
   };
 }
+
+type AdminPaymentRecord = AdminOverviewResponse["recentPayments"][number];
+type PaymentBucket = "wallet" | "redeem_code" | "legacy";
 
 interface SearchResponse {
   users: Array<{
@@ -240,6 +295,24 @@ interface RentalDetailResponse {
 }
 
 interface ComplianceStatsResponse {
+  summary: {
+    trackedRentals: number;
+    syncedRentals: number;
+    profileCount: number;
+    rejectPackets: number;
+    rejectBytes: number;
+    latestSyncedAt: string | null;
+  };
+  profiles: Array<{
+    id: string;
+    name: string;
+    mode: "standard" | "restricted";
+    version: string;
+    blockedProtocols: string[];
+    allowedPorts: number[];
+    allowedCidrs: string[];
+    isDefault: boolean;
+  }>;
   rentals: Array<{
     rentalId: string;
     userId: string | null;
@@ -288,7 +361,7 @@ const ADMIN_NAV: Array<{ section: AdminSection; href: string; label: string; des
   { section: "provisioning", href: "/admin/provisioning", label: "Provisioning", description: "Stage logs and test rentals" },
   { section: "rentals", href: "/admin/rentals", label: "Rentals", description: "Search, inspect, destroy" },
   { section: "codes", href: "/admin/codes", label: "Codes", description: "Generate and manage redeem codes" },
-  { section: "activity", href: "/admin/activity", label: "Activity", description: "Payments and audit trail" },
+  { section: "activity", href: "/admin/activity", label: "Activity", description: "Topups, ledger, payments, and audit trail" },
 ];
 
 export function AdminConsole({ section = "overview" }: { section?: AdminSection }) {
@@ -315,6 +388,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
   const [checkingProvider, setCheckingProvider] = useState(false);
   const [providerCheck, setProviderCheck] = useState<ProviderCheckResponse | null>(null);
   const [complianceStats, setComplianceStats] = useState<ComplianceStatsResponse | null>(null);
+  const [verifyingAnchorBatchId, setVerifyingAnchorBatchId] = useState<string | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingComplianceStats, setSyncingComplianceStats] = useState(false);
@@ -430,6 +504,20 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
       ["Expires", formatDateTime(rental.expiresAt)],
     ];
   }, [selectedRental]);
+
+  const recentPaymentBuckets = useMemo(() => {
+    const buckets: Record<PaymentBucket, AdminPaymentRecord[]> = {
+      wallet: [],
+      redeem_code: [],
+      legacy: [],
+    };
+
+    for (const payment of overview?.recentPayments ?? []) {
+      buckets[classifyAdminPaymentBucket(payment.method)].push(payment);
+    }
+
+    return buckets;
+  }, [overview?.recentPayments]);
 
   const filteredCodes = useMemo(() => {
     if (codeFilter === "all") {
@@ -573,6 +661,32 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
       showToast(error instanceof Error ? error.message : "Failed to sync compliance stats", "error");
     } finally {
       setSyncingComplianceStats(false);
+    }
+  };
+
+  const handleVerifyAnchorBatch = async (batchId: string) => {
+    if (!token) return;
+    setVerifyingAnchorBatchId(batchId);
+    try {
+      const res = await workerFetch(`/api/admin/audit/anchors/${batchId}/verify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to verify anchor batch");
+      }
+      showToast(
+        data.ok
+          ? `Anchor batch ${batchId} verified`
+          : `Anchor batch ${batchId} mismatch`,
+        data.ok ? "success" : "warning",
+      );
+      await loadAll(true);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to verify anchor batch", "error");
+    } finally {
+      setVerifyingAnchorBatchId(null);
     }
   };
 
@@ -1084,33 +1198,84 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
         </GlassCard>
       )}
 
-      {showSystemHealth && complianceStats?.rentals?.length ? (
+      {showSystemHealth && complianceStats ? (
         <GlassCard>
           <SectionHeader
             title="Compliance Tracking"
             description="Tracked rentals with the latest reject counters collected from restricted policy chains."
           />
-          <div className="grid gap-3">
-            {complianceStats.rentals.map((entry) => (
-              <MiniPanel key={entry.rentalId}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="font-medium tracking-tight">{entry.complianceProfileId || "standard"}</div>
-                    <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                      {entry.rentalId} · {entry.ip || "pending-ip"} · {entry.compliancePolicyVersion || "no-policy-version"}
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <DebugMetric label="Tracked Rentals" value={String(complianceStats.summary.trackedRentals)} />
+            <DebugMetric
+              label="Synced Rentals"
+              value={
+                complianceStats.summary.trackedRentals > 0
+                  ? `${complianceStats.summary.syncedRentals}/${complianceStats.summary.trackedRentals}`
+                  : String(complianceStats.summary.syncedRentals)
+              }
+            />
+            <DebugMetric label="Profiles" value={String(complianceStats.summary.profileCount)} />
+            <DebugMetric label="Reject Packets" value={String(complianceStats.summary.rejectPackets)} />
+            <DebugMetric label="Reject Bytes" value={formatBytes(complianceStats.summary.rejectBytes)} />
+            <DebugMetric label="Latest Sync" value={formatDateTime(complianceStats.summary.latestSyncedAt)} />
+          </div>
+          {complianceStats.profiles.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {complianceStats.profiles.map((profile) => (
+                <MiniPanel key={profile.id}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium tracking-tight">{profile.name}</div>
+                      <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                        {profile.id} · {profile.version}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="rounded-full">
+                        {profile.mode}
+                      </Badge>
+                      {profile.isDefault ? (
+                        <Badge variant="default" className="rounded-full">
+                          default
+                        </Badge>
+                      ) : null}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-medium">{String(entry.stats?.rejectPackets || 0)} rejects</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(entry.stats?.lastSyncedAt || null)}</div>
+                  <div className="mt-3 text-xs leading-5 text-muted-foreground">
+                    blocked protocols: {profile.blockedProtocols.length > 0 ? profile.blockedProtocols.join(", ") : "none"}
                   </div>
-                </div>
-                <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                  bytes={String(entry.stats?.rejectBytes || 0)} · status={entry.status} · detail={entry.stats?.detail || "not-synced"}
-                </div>
-              </MiniPanel>
-            ))}
-          </div>
+                  <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                    allowed ports: {profile.allowedPorts.length > 0 ? profile.allowedPorts.join(", ") : "all"} · allowed CIDRs: {profile.allowedCidrs.length > 0 ? profile.allowedCidrs.join(", ") : "all"}
+                  </div>
+                </MiniPanel>
+              ))}
+            </div>
+          ) : null}
+          {complianceStats.rentals.length > 0 ? (
+            <div className="grid gap-3">
+              {complianceStats.rentals.map((entry) => (
+                <MiniPanel key={entry.rentalId}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium tracking-tight">{entry.complianceProfileId || "standard"}</div>
+                      <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                        {entry.rentalId} · {entry.ip || "pending-ip"} · {entry.compliancePolicyVersion || "no-policy-version"}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-medium">{String(entry.stats?.rejectPackets || 0)} rejects</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(entry.stats?.lastSyncedAt || null)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                    bytes={formatBytes(entry.stats?.rejectBytes || 0)} · status={entry.status} · detail={entry.stats?.detail || "not-synced"}
+                  </div>
+                </MiniPanel>
+              ))}
+            </div>
+          ) : (
+            <EmptyMessage>No compliance stats yet.</EmptyMessage>
+          )}
         </GlassCard>
       ) : null}
 
@@ -1689,27 +1854,179 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
           {showActivity && (
           <GlassCard>
             <SectionHeader
-              title="Recent Payments"
-              description="Latest payment records and settlement state."
-              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentPayments.length}</Badge>}
+              title="Recent Fiat Topups"
+              description="Stripe balance recharge records."
+              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentTopups.length}</Badge>}
             />
             <div className="space-y-3">
-              {overview.recentPayments.length === 0 ? (
-                <EmptyMessage>No payments yet.</EmptyMessage>
+              {overview.recentTopups.length === 0 ? (
+                <EmptyMessage>No fiat topups yet.</EmptyMessage>
               ) : (
-                overview.recentPayments.map((payment) => (
-                  <MiniPanel key={payment.paymentId}>
+                overview.recentTopups.map((topup) => (
+                  <MiniPanel key={topup.topupId}>
                     <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium tracking-tight">{payment.email || "Unknown user"}</div>
-                      <Badge variant={payment.status === "completed" ? "default" : "secondary"} className="rounded-full">
-                        {payment.status}
+                      <div className="font-medium tracking-tight">{topup.email || "Unknown user"}</div>
+                      <Badge variant={topup.status === "completed" ? "default" : "secondary"} className="rounded-full">
+                        {topup.status}
                       </Badge>
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      ${payment.amount.toFixed(2)} {payment.currency.toUpperCase()} | {payment.method}
+                      ${topup.amount.toFixed(2)} {topup.currency.toUpperCase()} | {topup.provider}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {new Date(payment.createdAt).toLocaleString()}
+                      created {formatDateTime(topup.createdAt)} · completed {formatDateTime(topup.completedAt)}
+                    </div>
+                  </MiniPanel>
+                ))
+              )}
+            </div>
+          </GlassCard>
+          )}
+
+          {showActivity && (
+          <GlassCard>
+            <SectionHeader
+              title="Recent Crypto Topups"
+              description="Wallet and X402 on-chain recharge records."
+              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentCryptoTopups.length}</Badge>}
+            />
+            <div className="space-y-3">
+              {overview.recentCryptoTopups.length === 0 ? (
+                <EmptyMessage>No crypto topups yet.</EmptyMessage>
+              ) : (
+                overview.recentCryptoTopups.map((topup) => (
+                  <MiniPanel key={topup.topupId}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium tracking-tight">{topup.email || "Unknown user"}</div>
+                      <Badge variant={topup.status === "completed" ? "default" : "secondary"} className="rounded-full">
+                        {topup.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      ${topup.fiatAmount.toFixed(2)} {topup.currency.toUpperCase()} | {topup.rail} | {topup.network} | {topup.asset}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      tx {topup.txHash || "-"} · {formatDateTime(topup.createdAt)}
+                    </div>
+                  </MiniPanel>
+                ))
+              )}
+            </div>
+          </GlassCard>
+          )}
+
+          {showActivity && (
+          <GlassCard>
+            <SectionHeader
+              title="Recent Wallet Ledger"
+              description="Wallet credits and billing charges that drive the balance."
+              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentWalletLedgerEntries.length}</Badge>}
+            />
+            <div className="space-y-3">
+              {overview.recentWalletLedgerEntries.length === 0 ? (
+                <EmptyMessage>No wallet ledger entries yet.</EmptyMessage>
+              ) : (
+                overview.recentWalletLedgerEntries.map((entry) => (
+                  <MiniPanel key={entry.entryId}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium tracking-tight">{entry.email || "Unknown user"}</div>
+                      <Badge variant={entry.amount >= 0 ? "default" : "destructive"} className="rounded-full">
+                        {entry.type}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {entry.amount >= 0 ? "+" : ""}{entry.amount.toFixed(2)} {entry.currency.toUpperCase()} · balance {entry.balanceAfter.toFixed(2)}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      rental {entry.rentalId || "-"} · topup {entry.topupId || "-"} · {formatDateTime(entry.createdAt)}
+                    </div>
+                  </MiniPanel>
+                ))
+              )}
+            </div>
+          </GlassCard>
+          )}
+
+          {showActivity && (
+          <GlassCard>
+            <SectionHeader
+              title="Recent Checkout Records"
+              description="Wallet checkouts, redeem-code rentals, and legacy direct payments are separated here. Wallet balance debits live in the wallet ledger block above."
+              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentPayments.length}</Badge>}
+            />
+            <div className="grid gap-3 md:grid-cols-3">
+              <DebugMetric label="Wallet Checkouts" value={String(recentPaymentBuckets.wallet.length)} />
+              <DebugMetric label="Redeem-code Rentals" value={String(recentPaymentBuckets.redeem_code.length)} />
+              <DebugMetric label="Legacy Direct Payments" value={String(recentPaymentBuckets.legacy.length)} />
+            </div>
+            <div className="grid gap-3 xl:grid-cols-3">
+              <PaymentBucketPanel
+                title="Wallet Checkouts"
+                description="Current wallet-balance checkout records."
+                payments={recentPaymentBuckets.wallet}
+                empty="No wallet checkout records yet."
+              />
+              <PaymentBucketPanel
+                title="Redeem-code Rentals"
+                description="Rentals created from redeem-code redemptions."
+                payments={recentPaymentBuckets.redeem_code}
+                empty="No redeem-code rentals yet."
+              />
+              <PaymentBucketPanel
+                title="Legacy Direct Payments"
+                description="Stripe, X402, and older direct payment records."
+                payments={recentPaymentBuckets.legacy}
+                empty="No legacy direct payments yet."
+              />
+            </div>
+          </GlassCard>
+          )}
+
+          {showActivity && (
+          <GlassCard>
+            <SectionHeader
+              title="Recent Audit Anchors"
+              description="Anchor batches, chain tx hashes, and receipt state for audit recovery."
+              action={<Badge variant="outline" className="rounded-full px-3">{overview.recentAnchorBatches.length}</Badge>}
+            />
+            <div className="space-y-3">
+              {overview.recentAnchorBatches.length === 0 ? (
+                <EmptyMessage>No audit anchor batches yet.</EmptyMessage>
+              ) : (
+                overview.recentAnchorBatches.map((batch) => (
+                  <MiniPanel key={batch.batchId}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="font-medium tracking-tight">{batch.batchId}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={batch.status === "anchored" ? "default" : "secondary"} className="rounded-full">
+                          {batch.status}
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleVerifyAnchorBatch(batch.batchId)}
+                          disabled={verifyingAnchorBatchId === batch.batchId}
+                          className="rounded-full border-black/10 bg-white/90"
+                        >
+                          {verifyingAnchorBatchId === batch.batchId ? "Verifying..." : "Verify"}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {batch.chain || "-"} | {batch.eventCount} events | receipt {batch.hasReceipt ? "yes" : "no"}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      tx {batch.txHash || "-"} · created {formatDateTime(batch.createdAt)} · anchored {formatDateTime(batch.anchoredAt)}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {batch.receiptSummary
+                        ? `receipt block ${batch.receiptSummary.blockNumber ?? "-"} · status ${batch.receiptSummary.status ?? "-"} · gas ${batch.receiptSummary.gasUsed || "-"}`
+                        : batch.txHash
+                          ? "receipt missing; rerun the worker with the stored txHash to recover."
+                          : "receipt missing; no txHash stored yet."}
+                    </div>
+                    <div className="mt-1 break-all text-[11px] text-muted-foreground">
+                      {batch.merkleRoot}
                     </div>
                   </MiniPanel>
                 ))
@@ -1994,6 +2311,64 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
 }
 
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1000 && unitIndex < units.length - 1) {
+    size /= 1000;
+    unitIndex += 1;
+  }
+
+  const fractionDigits = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(fractionDigits)} ${units[unitIndex]}`;
+}
+
+function classifyAdminPaymentBucket(method: string | null | undefined): PaymentBucket {
+  if (method === "wallet") {
+    return "wallet";
+  }
+  if (method === "redeem_code") {
+    return "redeem_code";
+  }
+  return "legacy";
+}
+
+function formatAdminPaymentMethod(method: string | null | undefined) {
+  switch (method) {
+    case "wallet":
+      return "Wallet checkout";
+    case "redeem_code":
+      return "Redeem-code rental";
+    case "stripe":
+      return "Stripe direct";
+    case "x402":
+      return "X402 direct";
+    case "free_trial":
+      return "Free trial";
+    case null:
+    case undefined:
+    case "":
+      return "Unknown";
+    default:
+      return method;
+  }
+}
+
+function getPaymentStatusVariant(status: string) {
+  if (["completed", "paid"].includes(status)) {
+    return "default";
+  }
+  if (["failed", "refunded"].includes(status)) {
+    return "destructive";
+  }
+  return "secondary";
+}
+
 function formatJobTime(job: Pick<ProvisionDebugJob, "finishedOn" | "processedOn" | "timestamp">) {
   const value = job.finishedOn ?? job.processedOn ?? job.timestamp;
   return value ? new Date(value).toLocaleString() : "-";
@@ -2157,6 +2532,59 @@ function MiniPanel({ children }: { children: ReactNode }) {
     <div className="rounded-2xl border border-black/5 bg-white/95 p-4 text-sm shadow-sm">
       {children}
     </div>
+  );
+}
+
+function PaymentBucketPanel({
+  title,
+  description,
+  payments,
+  empty,
+}: {
+  title: string;
+  description: string;
+  payments: AdminPaymentRecord[];
+  empty: string;
+}) {
+  return (
+    <MiniPanel>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium tracking-tight">{title}</div>
+          <div className="mt-1 text-xs leading-5 text-muted-foreground">{description}</div>
+        </div>
+        <Badge variant="outline" className="rounded-full">
+          {payments.length}
+        </Badge>
+      </div>
+      <div className="mt-3 space-y-2">
+        {payments.length === 0 ? (
+          <EmptyMessage>{empty}</EmptyMessage>
+        ) : (
+          payments.map((payment) => (
+            <div key={payment.paymentId} className="rounded-2xl border border-black/5 bg-slate-50/70 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="font-medium tracking-tight">{payment.email || "Unknown user"}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {payment.amount.toFixed(2)} {payment.currency.toUpperCase()} · rental {payment.rentalId || "-"}
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Badge variant="outline" className="rounded-full">
+                    {formatAdminPaymentMethod(payment.method)}
+                  </Badge>
+                  <Badge variant={getPaymentStatusVariant(payment.status)} className="rounded-full">
+                    {payment.status}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </MiniPanel>
   );
 }
 

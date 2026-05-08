@@ -60,6 +60,43 @@ function toIso(value: Date | string | null | undefined) {
   return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
+export type AuditAnchorReceiptSummary = {
+  blockNumber: number | null;
+  status: number | null;
+  gasUsed: string | null;
+  from: string | null;
+  to: string | null;
+};
+
+export function formatAuditAnchorReceipt(value: string | null | undefined): AuditAnchorReceiptSummary | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const receipt = parsed as Record<string, unknown>;
+    const blockNumber = Number(receipt.blockNumber);
+    const status = Number(receipt.status);
+    const gasUsed = receipt.gasUsed == null ? null : String(receipt.gasUsed);
+    const from = typeof receipt.from === "string" && receipt.from.trim() ? receipt.from.trim() : null;
+    const to = typeof receipt.to === "string" && receipt.to.trim() ? receipt.to.trim() : null;
+
+    return {
+      blockNumber: Number.isFinite(blockNumber) ? Math.floor(blockNumber) : null,
+      status: Number.isFinite(status) ? Math.floor(status) : null,
+      gasUsed,
+      from,
+      to,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function computeAuditEventHash(input: AuditEventHashInput) {
   return sha256([
     input.id,

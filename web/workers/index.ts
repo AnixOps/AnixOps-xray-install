@@ -221,11 +221,11 @@ app.post("/api/rental", verifyAuth, async (c) => {
   const userId = c.get("userId");
   const body = await c.req.json();
   const { protocol, durationHours, paymentMethod } = body;
-  const supportedPaymentMethods = ["stripe", "wallet", "x402"];
-  const walletStylePayment = paymentMethod === "wallet" || paymentMethod === "x402";
 
-  if (!protocol || !durationHours || !supportedPaymentMethods.includes(paymentMethod)) {
-    return c.json({ error: "Invalid rental request" }, 400);
+  if (!protocol || !durationHours || paymentMethod !== "wallet") {
+    return c.json({
+      error: "Rental checkout now accepts wallet balance only. Use the wallet topup page for Stripe, wallet, or X402 recharge.",
+    }, 400);
   }
 
   // Input validation
@@ -253,38 +253,36 @@ app.post("/api/rental", verifyAuth, async (c) => {
     return c.json({ error: "Existing rental still active. Destroy or finish it before creating another." }, 409);
   }
 
-  if (walletStylePayment) {
-    const balanceRow = await c.env.DB.prepare(
-      "SELECT balance FROM users WHERE id = ?"
-    ).bind(userId).first<{ balance: number }>();
-    const available = Number(balanceRow?.balance || 0);
-    const minimumBalance = Math.max(0.01, Math.round((tier.pricePerHour / 12) * 100) / 100);
-    if (available < minimumBalance) {
-      return c.json({
-        error: "Insufficient wallet balance",
-        code: "WALLET_BALANCE_LOW",
-        balance: available,
-        required: minimumBalance,
-      }, 402);
-    }
+  const balanceRow = await c.env.DB.prepare(
+    "SELECT balance FROM users WHERE id = ?"
+  ).bind(userId).first<{ balance: number }>();
+  const available = Number(balanceRow?.balance || 0);
+  const minimumBalance = Math.max(0.01, Math.round((tier.pricePerHour / 12) * 100) / 100);
+  if (available < minimumBalance) {
+    return c.json({
+      error: "Insufficient wallet balance",
+      code: "WALLET_BALANCE_LOW",
+      balance: available,
+      required: minimumBalance,
+    }, 402);
   }
 
   // Store rental in D1
   await c.env.DB.prepare(
     `INSERT INTO rentals (id, user_id, protocol, status, duration_hours, price_per_hour, total_price, payment_method, payment_status, created_at, expires_at)
-     VALUES (?, ?, ?, 'provisioning', ?, ?, ?, ?, 'paid', datetime('now'), datetime('now', '+' || ? || ' hours'))`
-  ).run(rentalId, userId, protocol, durationHours, tier.pricePerHour, tier.totalPrice, paymentMethod, durationHours);
+     VALUES (?, ?, ?, 'provisioning', ?, ?, ?, 'wallet', 'paid', datetime('now'), datetime('now', '+' || ? || ' hours'))`
+  ).run(rentalId, userId, protocol, durationHours, tier.pricePerHour, tier.totalPrice, durationHours);
 
   // Record payment
   const paymentId = crypto.randomUUID();
   await c.env.DB.prepare(
     `INSERT INTO payments (id, rental_id, user_id, amount, currency, method, status, created_at)
-     VALUES (?, ?, ?, ?, 'usd', ?, 'completed', datetime('now'))`
-  ).bind(paymentId, rentalId, userId, tier.totalPrice, paymentMethod).run();
+     VALUES (?, ?, ?, ?, 'usd', 'wallet', 'completed', datetime('now'))`
+  ).bind(paymentId, rentalId, userId, tier.totalPrice).run();
 
   const db = new DB(c.env.DB);
   // Audit log
-  await db.addAuditLog(rentalId, "rental_created", `protocol=${protocol}, duration=${durationHours}h`);
+  await db.addAuditLog(rentalId, "rental_created", `protocol=${protocol}, duration=${durationHours}h, method=wallet`);
 
   // Push provision task to queue
   await c.env.PROVISION_QUEUE.send({
@@ -293,7 +291,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     durationHours,
   });
 
-  return c.json({ rentalId, totalPrice: tier.totalPrice, status: "provisioning", billingMode: walletStylePayment ? "wallet_tick" : "legacy_direct_payment" });
+  return c.json({ rentalId, totalPrice: tier.totalPrice, status: "provisioning", billingMode: "wallet_tick" });
 });
 
 // Get user's payment history (with auth)

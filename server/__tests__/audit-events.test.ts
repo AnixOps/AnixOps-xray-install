@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 let buildMerkleRoot: typeof import("../src/audit-events.js").buildMerkleRoot;
 let canonicalJson: typeof import("../src/audit-events.js").canonicalJson;
 let computeAuditEventHash: typeof import("../src/audit-events.js").computeAuditEventHash;
+let formatAuditAnchorReceipt: typeof import("../src/audit-events.js").formatAuditAnchorReceipt;
 
 beforeAll(async () => {
   process.env.DATABASE_URL ||= "postgresql://anixops:test@localhost:5432/anixops";
@@ -11,6 +12,7 @@ beforeAll(async () => {
     buildMerkleRoot,
     canonicalJson,
     computeAuditEventHash,
+    formatAuditAnchorReceipt,
   } = await import("../src/audit-events.js"));
 });
 
@@ -40,5 +42,22 @@ describe("audit event helpers", () => {
     const root = buildMerkleRoot(["a".repeat(64), "b".repeat(64), "c".repeat(64)]);
     expect(root).toMatch(/^[a-f0-9]{64}$/);
     expect(buildMerkleRoot([])).toBeNull();
+  });
+
+  it("summarizes archived anchor receipts for operators", () => {
+    expect(formatAuditAnchorReceipt(JSON.stringify({
+      blockNumber: 12345,
+      status: 1,
+      gasUsed: "21000",
+      from: "0x1111111111111111111111111111111111111111",
+      to: "0x2222222222222222222222222222222222222222",
+    }))).toEqual({
+      blockNumber: 12345,
+      status: 1,
+      gasUsed: "21000",
+      from: "0x1111111111111111111111111111111111111111",
+      to: "0x2222222222222222222222222222222222222222",
+    });
+    expect(formatAuditAnchorReceipt("not-json")).toBeNull();
   });
 });

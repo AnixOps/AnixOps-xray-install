@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/store";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { Button, Card, Badge, useToast } from "@/components/ui";
+import { groupPaymentsByMethod } from "@/lib/payment-records";
 import { workerFetch } from "@/lib/api/client";
 
 interface PaymentRecord {
   id: string;
-  rental_id: string;
+  rental_id: string | null;
   amount: number;
   currency: string;
   method: string;
@@ -101,8 +102,37 @@ export default function PaymentsPage() {
       .filter((item) => item.status === "completed")
       .reduce((sum, item) => sum + item.amount, 0);
     const pending = payments.filter((item) => item.status === "pending").length;
-    return { count, revenue, pending };
+    return {
+      count,
+      revenue,
+      pending,
+      buckets: groupPaymentsByMethod(payments),
+    };
   }, [payments]);
+
+  const paymentSections = [
+    {
+      key: "wallet",
+      title: isZh ? "钱包直付" : "Wallet checkouts",
+      description: isZh ? "从余额直接扣费的租用记录。" : "Rentals paid directly from wallet balance.",
+      empty: isZh ? "这里还没有钱包直付记录。" : "No wallet checkout records yet.",
+      records: totals.buckets.wallet,
+    },
+    {
+      key: "redeem_code",
+      title: isZh ? "兑换码租用" : "Redeem-code rentals",
+      description: isZh ? "通过兑换码创建的租用记录。" : "Rentals created through redeem-code redemption.",
+      empty: isZh ? "这里还没有兑换码租用记录。" : "No redeem-code rentals yet.",
+      records: totals.buckets.redeem_code,
+    },
+    {
+      key: "legacy",
+      title: isZh ? "历史直付" : "Legacy direct payments",
+      description: isZh ? "Stripe、X402 和旧版直接支付记录。" : "Stripe, X402, and older direct payment records.",
+      empty: isZh ? "这里还没有历史直付记录。" : "No legacy direct payments yet.",
+      records: totals.buckets.legacy,
+    },
+  ] as const;
 
   if (loading) {
     return (
@@ -150,10 +180,13 @@ export default function PaymentsPage() {
       <div className="animate-rise mx-auto max-w-5xl space-y-6">
         <PageHeader title={t("payment.history")} onBack={() => router.push("/")} />
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
           <SummaryCard label={isZh ? "记录数" : "Records"} value={String(totals.count)} />
           <SummaryCard label={isZh ? "已完成" : "Completed volume"} value={`$${totals.revenue.toFixed(2)}`} />
           <SummaryCard label={isZh ? "待处理" : "Pending"} value={String(totals.pending)} />
+          <SummaryCard label={isZh ? "钱包直付" : "Wallet"} value={String(totals.buckets.wallet.length)} />
+          <SummaryCard label={isZh ? "兑换码" : "Redeem code"} value={String(totals.buckets.redeem_code.length)} />
+          <SummaryCard label={isZh ? "历史直付" : "Legacy"} value={String(totals.buckets.legacy.length)} />
         </div>
 
         {payments.length === 0 ? (
@@ -164,42 +197,20 @@ export default function PaymentsPage() {
             tone="neutral"
           />
         ) : (
-          <div className="space-y-3">
-            {payments.map((payment) => (
-              <Card key={payment.id} className="lift-transition p-5 md:p-6">
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)] lg:items-start">
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-3xl font-semibold tracking-[-0.05em]">
-                        ${payment.amount.toFixed(2)}
-                      </span>
-                      <span className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
-                        {payment.currency}
-                      </span>
-                    </div>
-                    <div className="text-sm leading-6 text-muted-foreground">
-                      {isZh ? "租用单号" : "Rental"}:{" "}
-                      <span className="font-mono text-xs">{payment.rental_id || "—"}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(payment.created_at).toLocaleDateString()}{" "}
-                      {new Date(payment.created_at).toLocaleTimeString()}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant={badgeVariants[payment.status] || "secondary"}>
-                        {statusLabels[payment.status] || payment.status}
-                      </Badge>
-                      <Badge variant="outline">{methodLabels[payment.method] || payment.method}</Badge>
-                    </div>
-                  </div>
-
-                  <NodeSnapshot
-                    payment={payment}
-                    isZh={isZh}
-                    rentalStatusLabels={rentalStatusLabels}
-                  />
-                </div>
-              </Card>
+          <div className="grid gap-4 xl:grid-cols-3">
+            {paymentSections.map((section) => (
+              <PaymentGroupSection
+                key={section.key}
+                title={section.title}
+                description={section.description}
+                empty={section.empty}
+                records={section.records}
+                isZh={isZh}
+                methodLabels={methodLabels}
+                statusLabels={statusLabels}
+                badgeVariants={badgeVariants}
+                rentalStatusLabels={rentalStatusLabels}
+              />
             ))}
           </div>
         )}
@@ -234,6 +245,112 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
       <div className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">{label}</div>
       <div className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{value}</div>
     </Card>
+  );
+}
+
+function PaymentGroupSection({
+  title,
+  description,
+  empty,
+  records,
+  isZh,
+  methodLabels,
+  statusLabels,
+  badgeVariants,
+  rentalStatusLabels,
+}: {
+  title: string;
+  description: string;
+  empty: string;
+  records: PaymentRecord[];
+  isZh: boolean;
+  methodLabels: Record<string, string>;
+  statusLabels: Record<string, string>;
+  badgeVariants: Record<string, "default" | "secondary" | "destructive">;
+  rentalStatusLabels: Record<string, string>;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium">{title}</div>
+            <div className="mt-1 text-sm text-muted-foreground">{description}</div>
+          </div>
+          <Badge variant="outline">{records.length}</Badge>
+        </div>
+      </div>
+      {records.length === 0 ? (
+        <div className="p-5 text-sm text-muted-foreground">{empty}</div>
+      ) : (
+        <div className="space-y-3 p-5">
+          {records.map((payment) => (
+            <PaymentRecordCard
+              key={payment.id}
+              payment={payment}
+              isZh={isZh}
+              methodLabels={methodLabels}
+              statusLabels={statusLabels}
+              badgeVariants={badgeVariants}
+              rentalStatusLabels={rentalStatusLabels}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function PaymentRecordCard({
+  payment,
+  isZh,
+  methodLabels,
+  statusLabels,
+  badgeVariants,
+  rentalStatusLabels,
+}: {
+  payment: PaymentRecord;
+  isZh: boolean;
+  methodLabels: Record<string, string>;
+  statusLabels: Record<string, string>;
+  badgeVariants: Record<string, "default" | "secondary" | "destructive">;
+  rentalStatusLabels: Record<string, string>;
+}) {
+  return (
+    <div className="lift-transition rounded-[1.35rem] border border-black/5 bg-white/95 p-5 shadow-sm md:p-6">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)] lg:items-start">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-3xl font-semibold tracking-[-0.05em]">
+              ${payment.amount.toFixed(2)}
+            </span>
+            <span className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+              {payment.currency}
+            </span>
+          </div>
+          <div className="text-sm leading-6 text-muted-foreground">
+            {isZh ? "租用单号" : "Rental"}:{" "}
+            <span className="font-mono text-xs">{payment.rental_id || "—"}</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {new Date(payment.created_at).toLocaleDateString()}{" "}
+            {new Date(payment.created_at).toLocaleTimeString()}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={badgeVariants[payment.status] || "secondary"}>
+              {statusLabels[payment.status] || payment.status}
+            </Badge>
+            <Badge variant="outline">{methodLabels[payment.method] || payment.method}</Badge>
+          </div>
+        </div>
+
+        <NodeSnapshot
+          payment={payment}
+          isZh={isZh}
+          rentalStatusLabels={rentalStatusLabels}
+        />
+      </div>
+    </div>
   );
 }
 

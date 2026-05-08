@@ -77,25 +77,24 @@
 
 ## 当前仍待推进
 
+说明：P0 测试服充值闭环已在 2026-05-08 的 `scripts/recharge-smoke.js` live run 中验收完成，下面只保留剩余工作。
+
 | 优先级 | 工作 | 目标状态 | 验收标准 |
 |---|---|---|---|
-| P0 | 支付模型收口 | 租用页只保留余额/兑换码，充值页承接 `Stripe`、钱包支付、`X402` | 用户不会在租用页看到 Stripe/X402/钱包直付；余额不足有明确去充值提示 |
-| P0 | 测试服充值闭环 | 白名单用户能在 Base Sepolia 测试链完成充值入账 | `crypto_topups` 完成、`wallet_ledger` 入账、余额可用于租用 |
-| P1 | 审计 anchor 测试链闭环 | 审计事件可以锚定到测试链并恢复 receipt | 有 `txHash`、receipt、失败恢复 SOP |
+| P1 | 审计 anchor 测试链闭环 | 管理端已展示 anchor batch、`txHash`、receipt summary、recovery hint，并支持 verify；已补 smoke 脚本 | 仍需测试链闭环、`receipt` 恢复和失败恢复 SOP 的实跑验证 |
 | P1 | 支付和充值后台展示 | 管理端能区分充值、余额扣费、兑换码和历史直接支付 | 后台列表显示来源和状态，不混淆 rental payment 与 topup |
 | P2 | 真实链上充值生产化 | 明确生产链、资产、provider、确认监听、汇率源和对账 | 写入生产方案并完成小额实测 |
-| P2 | 合规统计展示 | 管理端和控制台展示更细合规统计 | profile、blocked protocol、reject stats 可读 |
+| P2 | 合规统计展示 | 管理端和控制台已展示 profile、blocked protocol、reject stats 和 sync coverage | 仍可继续补导出、告警和更细的用户端统计 |
 | P2 | 合规产品边界 | 明确合规模式是正式产品线还是安全增强 profile | 文档和 UI 口径一致 |
 | P2 | Worker API 去留 | 决定 `web/workers/index.ts` 是继续维护还是废弃 | 若保留，核心 API 改动必须同步；若废弃，移除部署入口 |
 
 ## 当前推荐实施顺序
 
-1. 先做支付模型收口：改 `RentalWizard`，租用页只保留 `余额支付` / `兑换码`。
-2. 调整 `/api/rental`：新 rental 只接受 `wallet`，兑换码继续走 `/api/redeem`。
-3. 把 `Stripe`、钱包支付、`X402` 移到钱包/控制台充值区域。
-4. 给 `crypto_topups` 增加 `rail` 或等价来源字段，区分 `wallet` 和 `x402`。
-5. 跑测试服闭环：充值、入账、余额租用、兑换码租用、支付记录展示。
-6. 再处理审计 anchor 测试链闭环和生产决策。
+1. 跑测试服充值闭环：先用 `node scripts/recharge-smoke.js` 验证充值、入账和余额租用，再补兑换码租用、支付记录展示。
+2. 再处理审计 anchor 测试链闭环和生产主网决策，优先跑 `node scripts/audit-anchor-smoke.js --confirmation-mode synthetic`。
+3. 补齐支付和充值后台展示，让充值、余额扣费、兑换码和历史直接支付不混淆。
+4. 推进真实链上充值生产化，明确生产链、资产、provider、确认监听、汇率源和对账。
+5. 最后再决定 Worker API 去留，避免重复维护两套核心入口。
 
 ## 敏感信息与安全边界
 

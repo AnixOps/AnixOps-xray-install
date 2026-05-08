@@ -34,6 +34,25 @@ function usage() {
 Verifies an audit anchor batch through the internal API without printing secret values.`);
 }
 
+async function verifyAuditAnchor({
+  baseUrl,
+  apiSecret,
+  batchId,
+  fetchImpl = fetch,
+}) {
+  const response = await fetchImpl(`${baseUrl}/internal/audit/anchor/${encodeURIComponent(batchId)}/verify`, {
+    headers: { "X-API-Secret": apiSecret },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.ok !== true) {
+    const error = new Error(body.error || "Audit anchor verification failed");
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || !args.batchId) {
@@ -48,14 +67,26 @@ async function main() {
   }
 
   const baseUrl = args.api.replace(/\/+$/, "");
-  const response = await fetch(`${baseUrl}/internal/audit/anchor/${encodeURIComponent(args.batchId)}/verify`, {
-    headers: { "X-API-Secret": apiSecret },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || body.ok !== true) {
+  try {
+    const body = await verifyAuditAnchor({
+      baseUrl,
+      apiSecret,
+      batchId: args.batchId,
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      batchId: body.batchId,
+      eventCount: body.eventCount,
+      merkleRoot: body.merkleRoot,
+      status: body.status,
+      chain: body.chain,
+      txHash: body.txHash,
+    }, null, 2));
+  } catch (error) {
+    const body = error && typeof error === "object" && "body" in error ? error.body : {};
     console.error(JSON.stringify({
       ok: false,
-      status: response.status,
+      status: error && typeof error === "object" && "status" in error ? error.status : 500,
       batchId: args.batchId,
       merkleOk: body.merkleOk,
       hashesOk: body.hashesOk,
@@ -65,16 +96,6 @@ async function main() {
     }, null, 2));
     process.exit(1);
   }
-
-  console.log(JSON.stringify({
-    ok: true,
-    batchId: body.batchId,
-    eventCount: body.eventCount,
-    merkleRoot: body.merkleRoot,
-    status: body.status,
-    chain: body.chain,
-    txHash: body.txHash,
-  }, null, 2));
 }
 
 if (require.main === module) {
@@ -84,4 +105,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { parseArgs, parseEnvFile };
+module.exports = { parseArgs, parseEnvFile, verifyAuditAnchor };

@@ -196,7 +196,7 @@ function statusCommand() {
     `docker inspect -f 'status_network_mode={{.HostConfig.NetworkMode}}' ${shellQuote(API_CONTAINER)} 2>/dev/null || true`,
     'echo "--- admin env ---"',
     `if docker inspect ${shellQuote(API_CONTAINER)} >/dev/null 2>&1; then`,
-    `  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} | awk -F= '$1=="ADMIN_EMAILS" {print "status_ADMIN_EMAILS="$2} $1=="PROVISION_SERVER_URL" {print "status_PROVISION_SERVER_URL="$2} $1=="CHAIN_ENVIRONMENT" {print "status_CHAIN_ENVIRONMENT="$2} $1=="CRYPTO_ALERT_WEBHOOK_URL" {print "status_CRYPTO_ALERT_WEBHOOK=" (substr($0, index($0, "=")+1) != "" ? "configured" : "missing")} $1=="AUDIT_ANCHOR_ALERT_WEBHOOK_URL" {print "status_AUDIT_ANCHOR_ALERT_WEBHOOK=" (substr($0, index($0, "=")+1) != "" ? "configured" : "missing")}'`,
+    `  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} | awk -F= '$1=="ADMIN_EMAILS" {print "status_ADMIN_EMAILS="$2} $1=="PROVISION_SERVER_URL" {print "status_PROVISION_SERVER_URL="$2} $1=="CHAIN_ENVIRONMENT" {print "status_CHAIN_ENVIRONMENT="$2} $1=="CHAIN_TESTNET_WHITELIST_EMAILS" {print "status_CHAIN_TESTNET_WHITELIST_EMAILS="$2} $1=="CRYPTO_ALERT_WEBHOOK_URL" {print "status_CRYPTO_ALERT_WEBHOOK=" (substr($0, index($0, "=")+1) != "" ? "configured" : "missing")} $1=="AUDIT_ANCHOR_ALERT_WEBHOOK_URL" {print "status_AUDIT_ANCHOR_ALERT_WEBHOOK=" (substr($0, index($0, "=")+1) != "" ? "configured" : "missing")}'`,
     "fi",
     'echo "--- provision container ---"',
     'if [ -n "$provision_container" ]; then',
@@ -385,6 +385,54 @@ function smokeCommand() {
   ].join("\n");
 }
 
+function rechargeCommand(remoteDir = DEFAULT_REMOTE_DIR) {
+  return [
+    "set -eu",
+    `docker exec -w /app ${shellQuote(SCHEDULER_CONTAINER)} node scripts/recharge-smoke.js --json`,
+  ].join("\n");
+}
+
+function auditAnchorSmokeCommand(remoteDir = DEFAULT_REMOTE_DIR) {
+  return [
+    "set -eu",
+    `docker exec -w /app ${shellQuote(SCHEDULER_CONTAINER)} node scripts/audit-anchor-smoke.js --confirmation-mode synthetic --json`,
+  ].join("\n");
+}
+
+function adminSearchCommand(query) {
+  const normalizedQuery = String(query || "").trim();
+  if (!normalizedQuery) {
+    throw new Error("Admin search query is required.");
+  }
+  const encodedQuery = encodeURIComponent(normalizedQuery);
+  return [
+    "set -eu",
+    `api_secret=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} | awk -F= '$1=="API_SECRET" {print substr($0, index($0, "=")+1)}' | tail -n 1)`,
+    'if [ -z "$api_secret" ]; then',
+    '  echo "api_secret=missing"',
+    '  exit 1',
+    "fi",
+    `curl -sS --max-time 20 -H "X-API-Secret: $api_secret" "http://127.0.0.1:8787/api/admin/search?q=${encodedQuery}"`,
+  ].join("\n");
+}
+
+function adminDestroyRentalCommand(rentalId) {
+  const normalizedRentalId = String(rentalId || "").trim();
+  if (!normalizedRentalId) {
+    throw new Error("Rental id is required.");
+  }
+  const encodedRentalId = encodeURIComponent(normalizedRentalId);
+  return [
+    "set -eu",
+    `api_secret=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${shellQuote(API_CONTAINER)} | awk -F= '$1=="API_SECRET" {print substr($0, index($0, "=")+1)}' | tail -n 1)`,
+    'if [ -z "$api_secret" ]; then',
+    '  echo "api_secret=missing"',
+    '  exit 1',
+    "fi",
+    `curl -sS --max-time 20 -X POST -H "X-API-Secret: $api_secret" "http://127.0.0.1:8787/api/admin/rentals/${encodedRentalId}/destroy"`,
+  ].join("\n");
+}
+
 function restartCommand(target) {
   if (target === "provision") {
     return [
@@ -461,11 +509,9 @@ function jobCommand(jobName, remoteDir = DEFAULT_REMOTE_DIR) {
   if (!script) {
     throw new Error("Job name must be billing, crypto-topups, audit-anchor, or compliance-stats.");
   }
-  const normalizedRemoteDir = String(remoteDir || "").trim() || DEFAULT_REMOTE_DIR;
   return [
     "set -eu",
-    `cd ${shellQuote(normalizedRemoteDir)}`,
-    `node ${script}`,
+    `docker exec -w /app ${shellQuote(SCHEDULER_CONTAINER)} node ${script}`,
   ].join("\n");
 }
 
@@ -581,12 +627,16 @@ function usage() {
   node scripts/remote-ops.js status
   node scripts/remote-ops.js health [--strict]
   node scripts/remote-ops.js smoke
+  node scripts/remote-ops.js recharge [remote-dir]
+  node scripts/remote-ops.js audit-anchor-smoke [remote-dir]
   node scripts/remote-ops.js logs [tail]
   node scripts/remote-ops.js deploy [remote-dir]
   node scripts/remote-ops.js job billing|crypto-topups|audit-anchor|compliance-stats [remote-dir]
   node scripts/remote-ops.js restart api|web|scheduler|provision|all
   node scripts/remote-ops.js admin check <email>
   node scripts/remote-ops.js admin set <email>
+  node scripts/remote-ops.js admin search <query>
+  node scripts/remote-ops.js admin destroy <rentalId>
 
 Reads SSH credentials from ignored local file: .local-secrets.env or ssh.txt, or ANIXOPS_SSH_FILE when set.
 If .ssh/anixops_remote_ed25519 exists, it is used before password fallback.
@@ -616,6 +666,14 @@ async function main() {
     await runRemote(smokeCommand());
     return;
   }
+  if (command === "recharge") {
+    await runRemote(rechargeCommand(subcommand || DEFAULT_REMOTE_DIR));
+    return;
+  }
+  if (command === "audit-anchor-smoke") {
+    await runRemote(auditAnchorSmokeCommand(subcommand || DEFAULT_REMOTE_DIR));
+    return;
+  }
   if (command === "logs") {
     await runRemote(logsCommand(validateTail(subcommand)));
     return;
@@ -640,6 +698,14 @@ async function main() {
     await runRemote(setAdminCommand(value));
     return;
   }
+  if (command === "admin" && subcommand === "search") {
+    await runRemote(adminSearchCommand(value));
+    return;
+  }
+  if (command === "admin" && subcommand === "destroy") {
+    await runRemote(adminDestroyRentalCommand(value));
+    return;
+  }
 
   usage();
   throw new Error("Unknown remote ops command.");
@@ -654,9 +720,12 @@ if (require.main === module) {
 
 module.exports = {
   deployCommand,
+  auditAnchorSmokeCommand,
   diagnoseProvisionUrl,
   isLoopbackUrl,
   healthCommand,
+  adminDestroyRentalCommand,
+  adminSearchCommand,
   jobCommand,
   loadSshConfig,
   logsCommand,
@@ -665,6 +734,7 @@ module.exports = {
   restartCommand,
   runRemote,
   shellQuote,
+  rechargeCommand,
   smokeCommand,
   statusCommand,
   validateEmail,

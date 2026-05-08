@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/store";
+import { useLocaleStore } from "@/lib/i18n/store";
 import { workerFetch } from "@/lib/api/client";
-import { Badge, Button, Card } from "@/components/ui";
+import { formatPaymentMethodLabel, groupPaymentsByMethod } from "@/lib/payment-records";
+import { Badge, Button, Card, Input, Label } from "@/components/ui";
 
 export type ConsoleView = "overview" | "nodes" | "wallet" | "audit" | "referrals";
 
@@ -95,7 +97,16 @@ interface AuditData {
   compliance: {
     status: string;
     message: string;
-    profiles?: Array<{ id: string; name: string; mode: string; version: string }>;
+    profiles?: Array<{
+      id: string;
+      name: string;
+      mode: string;
+      version: string;
+      blockedProtocols: string[];
+      allowedPorts: number[];
+      allowedCidrs: string[];
+      isDefault: boolean;
+    }>;
     rentals?: Array<{
       rentalId: string;
       profileId: string;
@@ -115,6 +126,16 @@ interface AuditData {
     anchorBatchId: string | null;
     createdAt: string | null;
   }>;
+}
+
+interface AuditSummary {
+  profileCount: number;
+  rentalCount: number;
+  syncedRentalCount: number;
+  rejectPackets: number;
+  rejectBytes: number;
+  structuredEventCount: number;
+  anchoredEventCount: number;
 }
 
 interface ReferralsData {
@@ -139,6 +160,7 @@ interface CryptoTopup {
   id: string;
   asset: string;
   network: string;
+  rail: string;
   address: string;
   expectedAmount: number;
   fiatAmount: number;
@@ -146,7 +168,10 @@ interface CryptoTopup {
   status: string;
   txHash: string | null;
   createdAt: string | null;
+  expiresAt: string | null;
 }
+
+type WalletTopupRail = "stripe" | "wallet" | "x402";
 
 type ConsoleData = OverviewData | NodesData | WalletData | AuditData | ReferralsData;
 
@@ -170,9 +195,30 @@ function formatMoney(value: number, currency = "usd") {
   }).format(value || 0);
 }
 
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1000 && unitIndex < units.length - 1) {
+    size /= 1000;
+    unitIndex += 1;
+  }
+
+  const fractionDigits = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(fractionDigits)} ${units[unitIndex]}`;
+}
+
 function shortId(value: string | null | undefined) {
   if (!value) return "-";
   return value.length > 10 ? `${value.slice(0, 8)}...` : value;
+}
+
+function formatCountRatio(numerator: number, denominator: number) {
+  return denominator > 0 ? `${numerator}/${denominator}` : String(numerator);
 }
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
@@ -180,6 +226,22 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
   if (["failed", "destroyed", "expired"].includes(status)) return "destructive";
   if (["provisioning", "pending", "paused"].includes(status)) return "secondary";
   return "outline";
+}
+
+function buildAuditSummary(data: AuditData): AuditSummary {
+  const profiles = data.compliance.profiles ?? [];
+  const rentals = data.compliance.rentals ?? [];
+  const structuredEvents = data.structuredEvents ?? [];
+
+  return {
+    profileCount: profiles.length,
+    rentalCount: rentals.length,
+    syncedRentalCount: rentals.filter((rental) => Boolean(rental.stats?.lastSyncedAt)).length,
+    rejectPackets: rentals.reduce((total, rental) => total + (rental.stats?.rejectPackets || 0), 0),
+    rejectBytes: rentals.reduce((total, rental) => total + (rental.stats?.rejectBytes || 0), 0),
+    structuredEventCount: structuredEvents.length,
+    anchoredEventCount: structuredEvents.filter((event) => Boolean(event.anchorBatchId)).length,
+  };
 }
 
 export function ConsoleHub({ view }: { view: ConsoleView }) {
@@ -329,7 +391,7 @@ function OverviewView({ data }: { data: OverviewData }) {
         <Metric label="Total Paid" value={formatMoney(data.summary.totalPaid)} />
       </div>
       <NodeList title="Recent Nodes" nodes={data.recentRentals} empty="No rentals yet." />
-      <EntryList title="Recent Payments" entries={data.recentPayments} empty="No payment records yet." />
+      <CheckoutGroups entries={data.recentPayments} />
       <AuditList entries={data.recentAuditEntries} />
     </div>
   );
@@ -342,6 +404,7 @@ function NodesView({ data }: { data: NodesData }) {
 function WalletView({ data }: { data: WalletData }) {
   return (
     <div className="space-y-4">
+      <WalletTopupPanel chainMode={data.chainMode} />
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric label="Balance" value={formatMoney(data.wallet.balance, data.wallet.currency)} />
         <Metric label="Topups" value={String(data.topups.length)} />
@@ -368,7 +431,261 @@ function WalletView({ data }: { data: WalletData }) {
   );
 }
 
+function WalletTopupPanel({ chainMode }: { chainMode?: WalletData["chainMode"] }) {
+  const token = useAuthStore((s) => s.token);
+  const { locale } = useLocaleStore();
+  const isZh = locale === "zh";
+  const [amount, setAmount] = useState("10");
+  const [rail, setRail] = useState<WalletTopupRail>("stripe");
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [createdTopup, setCreatedTopup] = useState<CryptoTopup | null>(null);
+
+  const canUseChainTopups = !chainMode?.allowlistedOnly || chainMode.allowlisted;
+  const chainRailDisabled = !canUseChainTopups;
+
+  useEffect(() => {
+    if (chainRailDisabled && rail !== "stripe") {
+      setRail("stripe");
+    }
+  }, [chainRailDisabled, rail]);
+
+  const setRailAndClear = (nextRail: WalletTopupRail) => {
+    setRail(nextRail);
+    setMessage(null);
+    setCreatedTopup(null);
+  };
+
+  const handleTopup = async () => {
+    if (!token) {
+      setMessage(isZh ? "登录后才能发起充值。" : "You need to sign in before creating a topup.");
+      return;
+    }
+
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setMessage(isZh ? "请输入有效的充值金额。" : "Enter a valid topup amount.");
+      return;
+    }
+
+    const minAmount = rail === "stripe" ? 1 : 1;
+    const maxAmount = rail === "stripe" ? 500 : 10000;
+    if (numericAmount < minAmount || numericAmount > maxAmount) {
+      setMessage(
+        isZh
+          ? `充值金额必须在 $${minAmount} 到 $${maxAmount} 之间。`
+          : `Topup amount must be between $${minAmount} and $${maxAmount}.`,
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    setMessage(null);
+    setCreatedTopup(null);
+
+    try {
+      if (rail === "stripe") {
+        const res = await workerFetch("/api/wallet/topups/checkout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            amount: numericAmount,
+            currency: "usd",
+            provider: "stripe",
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || "Failed to create Stripe topup");
+        }
+        if (data.checkoutUrl) {
+          window.location.href = data.checkoutUrl;
+          return;
+        }
+        throw new Error("Stripe did not return a checkout URL");
+      }
+
+      const res = await workerFetch("/api/wallet/crypto-topups", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          fiatAmount: numericAmount,
+          rail,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to create crypto topup");
+      }
+      setCreatedTopup(data.topup);
+      setMessage(
+        isZh
+          ? `已创建 ${data.topup.rail} 充值，请按下面地址转入。`
+          : `Created a ${data.topup.rail} topup. Send funds to the address below.`,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to create topup");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const topupRailButtons: Array<{ rail: WalletTopupRail; labelZh: string; labelEn: string; disabled?: boolean }> = [
+    { rail: "stripe", labelZh: "Stripe", labelEn: "Stripe" },
+    { rail: "wallet", labelZh: "钱包支付", labelEn: "Wallet payment", disabled: chainRailDisabled },
+    { rail: "x402", labelZh: "X402", labelEn: "X402", disabled: chainRailDisabled },
+  ];
+
+  return (
+    <Card className="space-y-4 border-black/5 bg-white/90 p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+            {isZh ? "余额充值" : "Wallet topup"}
+          </div>
+          <div className="mt-1 text-lg font-semibold tracking-[-0.03em]">
+            {isZh ? "为站内余额充值" : "Add funds to your wallet"}
+          </div>
+          <div className="mt-1 text-sm leading-6 text-muted-foreground">
+            {isZh
+              ? "Stripe、钱包支付和 X402 都会进入同一个余额账本。"
+              : "Stripe, wallet payment, and X402 all credit the same wallet ledger."}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="rounded-full px-3">
+            {chainMode?.environment || "local"}
+          </Badge>
+          <Badge variant={canUseChainTopups ? "default" : "destructive"} className="rounded-full px-3">
+            {canUseChainTopups ? "chain access ok" : "allowlist only"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[160px_1fr]">
+        <div>
+          <Label>{isZh ? "金额 (USD)" : "Amount (USD)"}</Label>
+          <Input
+            type="number"
+            min="1"
+            max="10000"
+            step="1"
+            value={amount}
+            onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+              setAmount(event.target.value);
+              setMessage(null);
+              setCreatedTopup(null);
+            }}
+            className="mt-1 h-12 rounded-[1.15rem]"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>{isZh ? "充值方式" : "Topup method"}</Label>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {topupRailButtons.map((item) => {
+              const active = rail === item.rail;
+              const disabled = Boolean(item.disabled);
+              return (
+                <button
+                  key={item.rail}
+                  type="button"
+                  onClick={() => !disabled && setRailAndClear(item.rail)}
+                  disabled={disabled}
+                  className={`choice-card min-h-[72px] px-4 py-3 text-left text-sm ${
+                    active ? "choice-card-active" : ""
+                  } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold tracking-[-0.02em]">
+                      {isZh ? item.labelZh : item.labelEn}
+                    </div>
+                    <Badge variant={active ? "default" : "outline"} className="rounded-full px-2 py-0.5 text-[10px]">
+                      {active ? (isZh ? "已选" : "selected") : (isZh ? "切换" : "switch")}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                    {item.rail === "stripe"
+                      ? (isZh ? "适合卡支付和法币入账。" : "Best for card checkout and fiat-backed balance.")
+                      : (isZh ? "测试链钱包通道，适合常规链上入账。" : "Test-chain wallet rail for on-chain balance credit.")}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {!canUseChainTopups && (
+            <div className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-900">
+              {isZh
+                ? "当前测试服只对白名单邮箱开放链上充值，钱包支付和 X402 会被限制。"
+                : "Chain topups are limited to allowlisted emails on this test build. Wallet and X402 remain locked."}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs leading-6 text-muted-foreground">
+          {isZh
+            ? "Stripe 会跳转到结账页；钱包支付和 X402 会创建可审计的链上充值单。"
+            : "Stripe redirects to checkout; wallet payment and X402 create an auditable on-chain topup."}
+        </div>
+        <Button onClick={handleTopup} disabled={submitting} className="h-11 px-5">
+          {submitting
+            ? (isZh ? "处理中..." : "Processing...")
+            : rail === "stripe"
+              ? (isZh ? "Stripe 结账" : "Start Stripe checkout")
+              : (isZh ? "创建充值单" : "Create topup")}
+        </Button>
+      </div>
+
+      {message && (
+        <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-muted-foreground">
+          {message}
+        </div>
+      )}
+
+      {createdTopup && (
+        <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="font-semibold tracking-[-0.02em]">
+              {isZh ? "充值单已创建" : "Topup created"}
+            </div>
+            <Badge variant="outline" className="rounded-full px-3">
+              {createdTopup.rail}
+            </Badge>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div>{isZh ? "金额" : "Amount"}: {formatMoney(createdTopup.fiatAmount, createdTopup.currency)}</div>
+            <div>{isZh ? "网络" : "Network"}: {createdTopup.network}</div>
+            <div>{isZh ? "资产" : "Asset"}: {createdTopup.asset}</div>
+            <div>{isZh ? "地址" : "Address"}: <span className="font-mono text-xs">{shortId(createdTopup.address)}</span></div>
+          </div>
+          <div className="mt-3 break-all rounded-[1.1rem] bg-white px-3 py-2 font-mono text-xs text-foreground">
+            {createdTopup.address}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span>{isZh ? "预期到账" : "Expected"}: {createdTopup.expectedAmount} {createdTopup.asset}</span>
+            <span>·</span>
+            <span>{isZh ? "过期时间" : "Expires"}: {formatDate(createdTopup.expiresAt)}</span>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AuditView({ data }: { data: AuditData }) {
+  const summary = buildAuditSummary(data);
+  const profiles = data.compliance.profiles ?? [];
+  const rentals = data.compliance.rentals ?? [];
+  const structuredEvents = data.structuredEvents ?? [];
+
   return (
     <div className="space-y-4">
       <Card className="p-4">
@@ -380,31 +697,71 @@ function AuditView({ data }: { data: AuditData }) {
           <Badge variant="outline">{data.compliance.status}</Badge>
         </div>
       </Card>
-      {(data.compliance.profiles || []).length > 0 && (
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <Metric
+          label="Compliance Profiles"
+          value={String(summary.profileCount)}
+          detail="Stored policy definitions"
+        />
+        <Metric
+          label="Tracked Rentals"
+          value={String(summary.rentalCount)}
+          detail="Compliance-enabled user rentals"
+        />
+        <Metric
+          label="Synced Rentals"
+          value={formatCountRatio(summary.syncedRentalCount, summary.rentalCount)}
+          detail="Rentals with synced stats"
+        />
+        <Metric
+          label="Reject Packets"
+          value={String(summary.rejectPackets)}
+          detail="Compliance traffic drops"
+        />
+        <Metric
+          label="Reject Bytes"
+          value={formatBytes(summary.rejectBytes)}
+          detail="Aggregate rejected traffic"
+        />
+        <Metric
+          label="Anchored Events"
+          value={formatCountRatio(summary.anchoredEventCount, summary.structuredEventCount)}
+          detail="Structured audit coverage"
+        />
+      </div>
+      {profiles.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="border-b p-4">
+          <div className="flex items-center justify-between gap-3 border-b p-4">
             <div className="font-medium">Compliance Profiles</div>
+            <Badge variant="outline">{summary.profileCount}</Badge>
           </div>
           <div className="divide-y">
-            {(data.compliance.profiles || []).map((profile) => (
+            {profiles.map((profile) => (
               <div key={profile.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div>
                   <div className="font-medium">{profile.name}</div>
                   <div className="mt-1 text-xs text-muted-foreground">{profile.id} · {profile.version}</div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    blocked protocols: {profile.blockedProtocols.length > 0 ? profile.blockedProtocols.join(", ") : "none"}
+                  </div>
                 </div>
-                <Badge variant="outline">{profile.mode}</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{profile.mode}</Badge>
+                  {profile.isDefault ? <Badge variant="default">default</Badge> : null}
+                </div>
               </div>
             ))}
           </div>
         </Card>
       )}
-      {(data.compliance.rentals || []).length > 0 && (
+      {rentals.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="border-b p-4">
+          <div className="flex items-center justify-between gap-3 border-b p-4">
             <div className="font-medium">Rental Compliance</div>
+            <Badge variant="outline">{summary.rentalCount}</Badge>
           </div>
           <div className="divide-y">
-            {(data.compliance.rentals || []).map((rental) => (
+            {rentals.map((rental) => (
               <div key={rental.rentalId} className="grid gap-3 p-4 md:grid-cols-[1fr_auto]">
                 <div>
                   <div className="font-medium">{rental.profileId}</div>
@@ -415,6 +772,9 @@ function AuditView({ data }: { data: AuditData }) {
                 <div className="text-left md:text-right">
                   <div className="font-medium">{String(rental.stats?.rejectPackets || 0)} rejects</div>
                   <div className="mt-1 text-xs text-muted-foreground">
+                    {formatBytes(rental.stats?.rejectBytes || 0)}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
                     {rental.stats?.lastSyncedAt ? `synced ${formatDate(rental.stats.lastSyncedAt)}` : "not synced"}
                   </div>
                 </div>
@@ -424,13 +784,14 @@ function AuditView({ data }: { data: AuditData }) {
         </Card>
       )}
       <AuditList entries={data.auditEntries} />
-      {(data.structuredEvents || []).length > 0 && (
+      {structuredEvents.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="border-b p-4">
+          <div className="flex items-center justify-between gap-3 border-b p-4">
             <div className="font-medium">Structured Events</div>
+            <Badge variant="outline">{formatCountRatio(summary.anchoredEventCount, summary.structuredEventCount)} anchored</Badge>
           </div>
           <div className="divide-y">
-            {(data.structuredEvents || []).map((event) => (
+            {structuredEvents.map((event) => (
               <div key={event.id} className="p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{event.eventType}</span>
@@ -533,7 +894,12 @@ function CryptoTopupList({ topups }: { topups: CryptoTopup[] }) {
           {topups.map((topup) => (
             <div key={topup.id} className="grid gap-3 p-4 md:grid-cols-[1fr_auto]">
               <div>
-                <div className="font-medium">{topup.asset} · {topup.network}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="font-medium">{topup.asset} · {topup.network}</div>
+                  <Badge variant="outline" className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
+                    {topup.rail}
+                  </Badge>
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">{shortId(topup.address)} · {formatDate(topup.createdAt)}</div>
               </div>
               <div className="text-left md:text-right">
@@ -548,11 +914,12 @@ function CryptoTopupList({ topups }: { topups: CryptoTopup[] }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
     <Card className="p-4">
       <div className="text-sm text-muted-foreground">{label}</div>
       <div className="mt-2 text-2xl font-semibold">{value}</div>
+      {detail && <div className="mt-1 text-xs text-muted-foreground">{detail}</div>}
     </Card>
   );
 }
@@ -624,11 +991,83 @@ function EntryList({ title, entries, empty }: { title: string; entries: WalletEn
   );
 }
 
+function CheckoutGroups({ entries }: { entries: WalletEntry[] }) {
+  const groups = useMemo(() => groupPaymentsByMethod(entries), [entries]);
+  const sections = [
+    {
+      key: "wallet" as const,
+      title: "Wallet Checkouts",
+      description: "Rentals paid from wallet balance.",
+      empty: "No wallet checkout records yet.",
+      entries: groups.wallet,
+    },
+    {
+      key: "redeem_code" as const,
+      title: "Redeem-code Rentals",
+      description: "Rentals unlocked by redeem codes.",
+      empty: "No redeem-code rentals yet.",
+      entries: groups.redeem_code,
+    },
+    {
+      key: "legacy" as const,
+      title: "Legacy Direct Payments",
+      description: "Stripe, X402, and older direct payments.",
+      empty: "No legacy direct payments yet.",
+      entries: groups.legacy,
+    },
+  ];
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b p-4">
+        <div>
+          <div className="font-medium">Recent Checkout Records</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            Wallet checkouts, redeem-code rentals, and legacy direct payments are separated by method.
+          </div>
+        </div>
+        <Badge variant="outline">{entries.length}</Badge>
+      </div>
+      <div className="grid gap-3 p-4 xl:grid-cols-3">
+        {sections.map((section) => (
+          <Card key={section.key} className="overflow-hidden border-black/5 bg-white/95">
+            <div className="flex items-center justify-between gap-3 border-b p-3">
+              <div>
+                <div className="font-medium">{section.title}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{section.description}</div>
+              </div>
+              <Badge variant="outline">{section.entries.length}</Badge>
+            </div>
+            {section.entries.length === 0 ? (
+              <div className="p-3 text-sm text-muted-foreground">{section.empty}</div>
+            ) : (
+              <div className="divide-y">
+                {section.entries.map((entry) => (
+                  <div key={entry.id} className="space-y-2 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium">{formatMoney(entry.amount, entry.currency)}</div>
+                      <Badge variant={statusVariant(entry.status)}>{entry.status}</Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatPaymentMethodLabel(entry.method)} · {shortId(entry.rentalId)} · {formatDate(entry.createdAt)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function AuditList({ entries }: { entries: AuditEntry[] }) {
   return (
     <Card className="overflow-hidden">
-      <div className="border-b p-4">
+      <div className="flex items-center justify-between gap-3 border-b p-4">
         <div className="font-medium">Recent Audit</div>
+        <Badge variant="outline">{entries.length}</Badge>
       </div>
       {entries.length === 0 ? (
         <div className="p-4 text-sm text-muted-foreground">No audit entries yet.</div>

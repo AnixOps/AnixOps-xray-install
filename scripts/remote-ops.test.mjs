@@ -3,12 +3,16 @@ import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
+  auditAnchorSmokeCommand,
+  adminDestroyRentalCommand,
+  adminSearchCommand,
   deployCommand,
   diagnoseProvisionUrl,
   healthCommand,
   isLoopbackUrl,
   jobCommand,
   logsCommand,
+  rechargeCommand,
   parseSshConfig,
   psCommand,
   restartCommand,
@@ -96,6 +100,7 @@ describe("remote-ops helpers", () => {
     const command = statusCommand();
 
     expect(command).toContain('status_CHAIN_ENVIRONMENT');
+    expect(command).toContain('status_CHAIN_TESTNET_WHITELIST_EMAILS');
     expect(command).toContain('status_CRYPTO_ALERT_WEBHOOK');
     expect(command).toContain('status_AUDIT_ANCHOR_ALERT_WEBHOOK');
     expect(command).toContain('status_scheduler_container');
@@ -115,7 +120,7 @@ describe("remote-ops helpers", () => {
   it("builds remote worker commands for the known cron-friendly jobs", () => {
     const command = jobCommand("crypto-topups", "/opt/anixops-selfhosted");
 
-    expect(command).toContain("cd '/opt/anixops-selfhosted'");
+    expect(command).toContain("docker exec -w /app 'anixops-scheduler-audit' node scripts/crypto-topup-worker.js --json");
     expect(command).toContain("node scripts/crypto-topup-worker.js --json");
     expect(() => jobCommand("unknown")).toThrow("Job name must be billing, crypto-topups, audit-anchor, or compliance-stats.");
   });
@@ -139,5 +144,29 @@ describe("remote-ops helpers", () => {
     expect(command).toContain("auth_console_${path}=$code");
     expect(command).toContain("crypto_topup_http=$crypto_code");
     expect(command).toContain('chain_environment=${chain_env:-unknown}');
+  });
+
+  it("builds a recharge command that runs the dedicated smoke verifier", () => {
+    const command = rechargeCommand("/opt/anixops-selfhosted");
+
+    expect(command).toContain("docker exec -w /app 'anixops-scheduler-audit' node scripts/recharge-smoke.js --json");
+    expect(command).toContain("node scripts/recharge-smoke.js --json");
+  });
+
+  it("builds an audit anchor smoke command that runs the dedicated verifier", () => {
+    const command = auditAnchorSmokeCommand("/opt/anixops-selfhosted");
+
+    expect(command).toContain("docker exec -w /app 'anixops-scheduler-audit' node scripts/audit-anchor-smoke.js --confirmation-mode synthetic --json");
+    expect(command).toContain("node scripts/audit-anchor-smoke.js --confirmation-mode synthetic --json");
+  });
+
+  it("builds admin search and destroy commands that use the API secret", () => {
+    const searchCommand = adminSearchCommand("kalijerryuk@gmail.com");
+    const destroyCommand = adminDestroyRentalCommand("rental-123");
+
+    expect(searchCommand).toContain("/api/admin/search?q=kalijerryuk%40gmail.com");
+    expect(searchCommand).toContain("API_SECRET");
+    expect(destroyCommand).toContain("/api/admin/rentals/rental-123/destroy");
+    expect(destroyCommand).toContain("API_SECRET");
   });
 });

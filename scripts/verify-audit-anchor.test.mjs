@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { parseArgs, parseEnvFile } from "./verify-audit-anchor.js";
+import { describe, expect, it, vi } from "vitest";
+import { parseArgs, parseEnvFile, verifyAuditAnchor } from "./verify-audit-anchor.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,32 @@ describe("verify-audit-anchor script helpers", () => {
     expect(parseEnvFile(file)).toEqual({
       API_SECRET: "secret-value",
       EMPTY: "",
+    });
+  });
+
+  it("verifies an audit anchor batch through the API helper", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        batchId: "batch-1",
+        eventCount: 1,
+        merkleRoot: `0x${"a".repeat(64)}`,
+        status: "anchored",
+        chain: "base-sepolia",
+        txHash: "0x" + "1".repeat(64),
+      }),
+    }));
+
+    await expect(verifyAuditAnchor({
+      baseUrl: "http://127.0.0.1:8787",
+      apiSecret: "secret",
+      batchId: "batch-1",
+      fetchImpl,
+    })).resolves.toMatchObject({
+      ok: true,
+      batchId: "batch-1",
+      eventCount: 1,
     });
   });
 });

@@ -10,6 +10,7 @@ import {
   payments,
   redeemCodes,
   auditLog,
+  auditAnchorBatches,
   provisionAttempts,
   billingTicks,
   topups,
@@ -97,6 +98,7 @@ import {
   ensureAuditEventSchema,
   finalizeAuditAnchorBatch,
   formatAuditEvent,
+  formatAuditAnchorReceipt,
   getPendingAuditAnchorBatch,
   markAuditAnchorBatchSubmitted,
   listAuditEvents,
@@ -1219,12 +1221,19 @@ app.post("/api/wallet/crypto-topups", verifyAuth, async (c) => {
     fiatAmount: bodyRecord.fiatAmount ?? bodyRecord.amount,
     asset: usePinnedTestnetChain ? chainConfig.asset : bodyRecord.asset,
     network: usePinnedTestnetChain ? resolveCryptoTopupNetworkLabel(chainConfig.chain) : bodyRecord.network,
+    rail: bodyRecord.rail,
     receiverAddress: chainConfig.receiverAddress,
     uniqueExpectedAmount: usePinnedTestnetChain && chainConfig.cryptoTopupEnabled,
   });
   if (!result.ok) {
     return c.json({ error: result.error }, toHttpStatus(result.status));
   }
+  const email = await getUserEmailById(userId);
+  const chainAccess = isChainFeatureAllowed({
+    chainEnvironment: env.CHAIN_ENVIRONMENT,
+    whitelistEmails: env.chainWhitelistEmails,
+    email,
+  });
 
   await recordStructuredAudit(c, {
     eventType: "crypto_topup_created",
@@ -1232,6 +1241,7 @@ app.post("/api/wallet/crypto-topups", verifyAuth, async (c) => {
       topupId: result.topup.id,
       asset: result.topup.asset,
       network: result.topup.network,
+      rail: result.topup.rail,
       fiatAmount: result.topup.fiatAmount,
       currency: result.topup.currency,
     },
@@ -1239,10 +1249,7 @@ app.post("/api/wallet/crypto-topups", verifyAuth, async (c) => {
 
   return c.json({
     topup: result.topup,
-    chainMode: {
-      environment: env.CHAIN_ENVIRONMENT,
-      allowlistedOnly: true,
-    },
+    chainMode: buildChainModePayload({ email, access: chainAccess }),
   });
 });
 
@@ -1745,13 +1752,17 @@ app.post("/api/rental", verifyAuth, async (c) => {
   }
 
   const body = await c.req.json();
-  const { protocol, durationHours, paymentMethod } = body;
+  const bodyRecord = toRecord(body);
+  const protocol = typeof bodyRecord.protocol === "string" ? bodyRecord.protocol.trim() : "";
+  const paymentMethod = typeof bodyRecord.paymentMethod === "string" ? bodyRecord.paymentMethod.trim() : "";
+  const complianceProfileId = typeof bodyRecord.complianceProfileId === "string" ? bodyRecord.complianceProfileId : undefined;
+  const rawDurationHours = Number(bodyRecord.durationHours);
+  const durationHours = Number.isFinite(rawDurationHours) ? rawDurationHours : null;
 
-  const supportedPaymentMethods = ["stripe", "wallet", "x402"];
-  const walletStylePayment = paymentMethod === "wallet" || paymentMethod === "x402";
-
-  if (!protocol || !durationHours || !supportedPaymentMethods.includes(paymentMethod)) {
-    return c.json({ error: "Invalid rental request" }, 400);
+  if (!protocol || durationHours === null || paymentMethod !== "wallet") {
+    return c.json({
+      error: "Rental checkout now accepts wallet balance only. Use the wallet topup page for Stripe, wallet, or X402 recharge.",
+    }, 400);
   }
 
   if (!isValidRentalDuration(durationHours)) {
@@ -1763,7 +1774,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     return c.json({ error: "Invalid duration" }, 400);
   }
 
-  const complianceResult = await resolveComplianceProfile(toRecord(body).complianceProfileId);
+  const complianceResult = await resolveComplianceProfile(complianceProfileId);
   if (!complianceResult.ok) {
     return c.json({ error: complianceResult.error }, toHttpStatus(complianceResult.status));
   }
@@ -1782,17 +1793,15 @@ app.post("/api/rental", verifyAuth, async (c) => {
     return c.json({ error: "Existing rental is active, paused, or still provisioning. Destroy or finish it before creating another." }, 409);
   }
 
-  if (walletStylePayment) {
-    const available = await getWalletAvailableBalance(userId);
-    const minimumBalance = Math.max(0.01, Math.round((tier.pricePerHour / 12) * 100) / 100);
-    if (available < minimumBalance) {
-      return c.json({
-        error: "Insufficient wallet balance",
-        code: "WALLET_BALANCE_LOW",
-        balance: available,
-        required: minimumBalance,
-      }, 402);
-    }
+  const available = await getWalletAvailableBalance(userId);
+  const minimumBalance = Math.max(0.01, Math.round((tier.pricePerHour / 12) * 100) / 100);
+  if (available < minimumBalance) {
+    return c.json({
+      error: "Insufficient wallet balance",
+      code: "WALLET_BALANCE_LOW",
+      balance: available,
+      required: minimumBalance,
+    }, 402);
   }
 
   const rentalId = randomUUID();
@@ -1814,7 +1823,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     durationHours,
     pricePerHour: tier.pricePerHour,
     totalPrice: tier.totalPrice,
-    paymentMethod,
+    paymentMethod: "wallet",
     paymentStatus: "paid",
     complianceProfileId: complianceResult.profile.id,
     compliancePolicyVersion: complianceResult.profile.version,
@@ -1823,24 +1832,22 @@ app.post("/api/rental", verifyAuth, async (c) => {
   });
 
   // Record the payment method used to create this rental.
-  if (supportedPaymentMethods.includes(paymentMethod)) {
-    const paymentId = randomUUID();
-    await db.insert(payments).values({
-      id: paymentId,
-      rentalId,
-      userId,
-      amount: tier.totalPrice,
-      currency: "usd",
-      method: paymentMethod,
-      status: "completed",
-    });
-  }
+  const paymentId = randomUUID();
+  await db.insert(payments).values({
+    id: paymentId,
+    rentalId,
+    userId,
+    amount: tier.totalPrice,
+    currency: "usd",
+    method: "wallet",
+    status: "completed",
+  });
 
   // Audit log
   await db.insert(auditLog).values({
     rentalId,
     action: "rental_created",
-    detail: `protocol=${protocol}, duration=${durationHours}h, method=${paymentMethod}, compliance=${complianceResult.profile.id}@${complianceResult.profile.version}`,
+    detail: `protocol=${protocol}, duration=${durationHours}h, method=wallet, compliance=${complianceResult.profile.id}@${complianceResult.profile.version}`,
   });
   await recordStructuredAudit(c, {
     eventType: "rental_created",
@@ -1848,7 +1855,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     payload: {
       protocol,
       durationHours,
-      paymentMethod,
+      paymentMethod: "wallet",
       complianceProfileId: complianceResult.profile.id,
       compliancePolicyVersion: complianceResult.profile.version,
     },
@@ -1861,7 +1868,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     rentalId,
     totalPrice: tier.totalPrice,
     status: "provisioning",
-    billingMode: walletStylePayment ? "wallet_tick" : "legacy_direct_payment",
+    billingMode: "wallet_tick",
   });
 });
 
@@ -3626,10 +3633,22 @@ app.get("/api/admin/compliance/stats", async (c) => {
   }).from(rentals)
     .where(sql`${rentals.complianceProfileId} IS NOT NULL`)
     .limit(limit);
+  const profiles = await listComplianceProfiles();
   const stats = await listComplianceStatsForRentals(rows.map((row) => row.id));
   const statMap = new Map(stats.map((stat) => [stat.rentalId, stat]));
+  const syncedStats = stats.filter((stat) => Boolean(stat.lastSyncedAt));
+  const latestSyncedAt = syncedStats.length > 0 ? syncedStats[0].lastSyncedAt : null;
 
   return c.json({
+    summary: {
+      trackedRentals: rows.length,
+      syncedRentals: syncedStats.length,
+      profileCount: new Set(rows.map((row) => row.complianceProfileId).filter((value): value is string => Boolean(value))).size,
+      rejectPackets: stats.reduce((total, stat) => total + (stat.rejectPackets || 0), 0),
+      rejectBytes: stats.reduce((total, stat) => total + (stat.rejectBytes || 0), 0),
+      latestSyncedAt: latestSyncedAt ? latestSyncedAt.toISOString() : null,
+    },
+    profiles,
     rentals: rows.map((row) => ({
       rentalId: row.id,
       userId: row.userId,
@@ -3649,6 +3668,21 @@ app.get("/api/admin/audit/events", async (c) => {
   const limit = parseBoundedLimit(c.req.query("limit"), 50, 200);
   const events = await listAuditEvents(limit);
   return c.json({ events: events.map(formatAuditEvent), limit });
+});
+
+app.post("/api/admin/audit/anchors/:id/verify", async (c) => {
+  if (!(await verifyAdminRequest(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const result = await verifyAuditAnchorBatch(c.req.param("id"));
+  if (!result.ok && "error" in result) {
+    return c.json({ error: result.error }, toHttpStatus(result.status));
+  }
+  if (!result.ok) {
+    return c.json(result, 409);
+  }
+  return c.json(result);
 });
 
 app.get("/api/admin/users/:id/ledger", async (c) => {
@@ -4005,6 +4039,10 @@ app.get("/api/admin/overview", async (c) => {
     recentComplianceStats,
     recentRentals,
     recentPayments,
+    recentTopups,
+    recentCryptoTopups,
+    recentWalletLedgerEntries,
+    recentAnchorBatches,
     recentAuditEntries,
     recentFailedJobs,
     recentProvisionJobs,
@@ -4064,6 +4102,66 @@ app.get("/api/admin/overview", async (c) => {
       .leftJoin(users, eq(payments.userId, users.id))
       .orderBy(desc(payments.createdAt))
       .limit(8),
+    db.select({
+      topupId: topups.id,
+      email: users.email,
+      provider: topups.provider,
+      amount: topups.amount,
+      currency: topups.currency,
+      status: topups.status,
+      createdAt: topups.createdAt,
+      completedAt: topups.completedAt,
+    })
+      .from(topups)
+      .leftJoin(users, eq(topups.userId, users.id))
+      .orderBy(desc(topups.createdAt))
+      .limit(8),
+    db.select({
+      topupId: cryptoTopups.id,
+      email: users.email,
+      asset: cryptoTopups.asset,
+      network: cryptoTopups.network,
+      rail: cryptoTopups.rail,
+      fiatAmount: cryptoTopups.fiatAmount,
+      currency: cryptoTopups.currency,
+      status: cryptoTopups.status,
+      txHash: cryptoTopups.txHash,
+      createdAt: cryptoTopups.createdAt,
+    })
+      .from(cryptoTopups)
+      .leftJoin(users, eq(cryptoTopups.userId, users.id))
+      .orderBy(desc(cryptoTopups.createdAt))
+      .limit(8),
+    db.select({
+      entryId: walletLedger.id,
+      email: users.email,
+      type: walletLedger.type,
+      amount: walletLedger.amount,
+      currency: walletLedger.currency,
+      rentalId: walletLedger.rentalId,
+      topupId: walletLedger.topupId,
+      balanceAfter: walletLedger.balanceAfter,
+      createdAt: walletLedger.createdAt,
+    })
+      .from(walletLedger)
+      .leftJoin(users, eq(walletLedger.userId, users.id))
+      .orderBy(desc(walletLedger.createdAt))
+      .limit(8),
+    db.select({
+      batchId: auditAnchorBatches.id,
+      eventCount: auditAnchorBatches.eventCount,
+      merkleRoot: auditAnchorBatches.merkleRoot,
+      status: auditAnchorBatches.status,
+      chain: auditAnchorBatches.chain,
+      txHash: auditAnchorBatches.txHash,
+      receipt: auditAnchorBatches.receipt,
+      submissionStartedAt: auditAnchorBatches.submissionStartedAt,
+      createdAt: auditAnchorBatches.createdAt,
+      anchoredAt: auditAnchorBatches.anchoredAt,
+    })
+      .from(auditAnchorBatches)
+      .orderBy(desc(auditAnchorBatches.createdAt))
+      .limit(6),
     db.select({
       id: auditLog.id,
       rentalId: auditLog.rentalId,
@@ -4208,6 +4306,22 @@ app.get("/api/admin/overview", async (c) => {
     },
     recentRentals,
     recentPayments,
+    recentTopups,
+    recentCryptoTopups,
+    recentWalletLedgerEntries,
+    recentAnchorBatches: recentAnchorBatches.map((batch) => ({
+      batchId: batch.batchId,
+      eventCount: Number(batch.eventCount || 0),
+      merkleRoot: batch.merkleRoot,
+      status: batch.status,
+      chain: batch.chain,
+      txHash: batch.txHash,
+      hasReceipt: Boolean(batch.receipt),
+      receiptSummary: formatAuditAnchorReceipt(batch.receipt),
+      submissionStartedAt: consoleToIso(batch.submissionStartedAt),
+      createdAt: consoleToIso(batch.createdAt),
+      anchoredAt: consoleToIso(batch.anchoredAt),
+    })),
     recentAuditEntries,
     recentFailedJobs: recentFailedJobs.map((job) => ({
       ...(serializedFailedJobs.find((serializedJob) => serializedJob.id === String(job.id)) ?? {

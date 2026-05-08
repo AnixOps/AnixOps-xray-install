@@ -17,6 +17,23 @@ It assumes the current system may use either:
 
 It is still not a full production listener with external custody, exchange-rate sync, and reconciliation dashboards.
 
+## Recharge Smoke Verifier
+
+For an end-to-end balance recharge check, use `node scripts/recharge-smoke.js`.
+
+This verifier exercises the full flow:
+
+- select or register a smoke account
+- create a crypto topup order
+- confirm it through `/internal/crypto-topups/:id/confirm`
+- verify the wallet ledger credit
+- create a wallet rental
+- wait for rental config readiness
+- charge the rental and verify the balance delta
+- destroy the rental so the smoke account stays available for the next run
+
+Use `--confirmation-mode synthetic` when you need a non-chain run. In testnet mode, the verifier will broadcast a tiny ERC20 transfer only when the RPC URL, signer private key, and token config are present.
+
 ## Status Model
 
 - `pending`: order created, waiting for funds or confirmation.

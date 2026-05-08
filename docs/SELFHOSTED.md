@@ -188,7 +188,10 @@ node scripts/remote-ops.js job billing
 node scripts/remote-ops.js job crypto-topups
 node scripts/remote-ops.js job audit-anchor
 node scripts/remote-ops.js job compliance-stats
+node scripts/remote-ops.js audit-anchor-smoke
 ```
+
+`audit-anchor-smoke` 默认使用 `--confirmation-mode synthetic`，适合做闭环验收；如果你需要 `auto` 或 `manual`，仍建议直接跑 `node scripts/audit-anchor-smoke.js`。
 
 如果你选择不用内置 `scheduler` 容器，也可以在主机 crontab 中手动配置：
 
