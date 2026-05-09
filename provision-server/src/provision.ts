@@ -128,7 +128,7 @@ interface CompliancePolicy {
 
 interface ProtocolInstallPlan {
   protocol: "vless-reality" | "hysteria2";
-  port: number;
+  port: number | string;
   scriptPath: string;
   args: string[];
   uuid?: string;
@@ -138,6 +138,49 @@ interface ProtocolInstallPlan {
   obfs?: string;
   script?: string;
   compliancePolicy?: CompliancePolicy;
+}
+
+function normalizeHysteria2PortSpec(value: unknown) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
+    return String(value);
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    const port = Number(normalized);
+    return Number.isInteger(port) && port > 0 && port <= 65535 ? String(port) : null;
+  }
+
+  const rangeMatch = normalized.match(/^(\d+)-(\d+)$/);
+  if (!rangeMatch) {
+    return null;
+  }
+
+  const start = Number(rangeMatch[1]);
+  const end = Number(rangeMatch[2]);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end > 65535 || start > end) {
+    return null;
+  }
+
+  return `${start}-${end}`;
+}
+
+function getHysteria2PortSpec() {
+  return normalizeHysteria2PortSpec(process.env.HYSTERIA2_PORT_SPEC) || "20000-50000";
+}
+
+function getHysteria2PrimaryPort(portSpec: string) {
+  const firstSegment = portSpec.split(",")[0]?.trim() || "";
+  const match = firstSegment.match(/^(\d+)(?:-(\d+))?$/);
+  return match ? Number(match[1]) : 0;
 }
 
 function buildAttemptMeta(attempt: ProvisionAttemptContext) {
@@ -188,8 +231,8 @@ function createProtocolInstallPlan(
   protocol: "vless-reality" | "hysteria2",
   compliancePolicy?: CompliancePolicy,
 ): ProtocolInstallPlan {
-  const port = 443;
   if (protocol === "vless-reality") {
+    const port = 443;
     const uuid = randomUUID();
     const shortId = randomBytes(4).toString("hex");
     const serverName = pickDisguiseDomain();
@@ -207,6 +250,7 @@ function createProtocolInstallPlan(
     };
   }
 
+  const port = getHysteria2PortSpec();
   const password = randomUUID().slice(0, 16);
   const obfs = randomUUID().slice(0, 12);
   return {
@@ -368,13 +412,16 @@ export async function provisionNode(
 
     const config = await deployProtocol(ip, protocol, privateKey, stages, installPlan, Boolean(userData));
     try {
+      const probePort = protocol === "hysteria2"
+        ? getHysteria2PrimaryPort(String(config.port))
+        : Number(config.port || 443);
       await verifyDeliveryConnectivity({
         rentalId,
         attemptId: attempt.attemptId,
         attemptNo: attempt.attemptNo,
         maxAttempts: attempt.maxAttempts,
         ip,
-        port: Number(config.port || 443),
+        port: probePort || 443,
         protocol,
       }, stages);
     } catch (error) {

@@ -449,7 +449,7 @@ export function AdminConsole({ section = "overview" }: { section?: AdminSection 
 
       if (selectedRental.rental.protocol === "hysteria2") {
         const ip = getConfigString(config, "ip");
-        const port = getConfigNumber(config, "port");
+        const port = getConfigString(config, "port");
         const password = getConfigString(config, "password");
         const obfs = getConfigString(config, "obfs");
         const insecureValue = config.insecure;

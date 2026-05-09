@@ -75,11 +75,14 @@ NOTIFICATION_WEBHOOK_URL=https://api.telegram.org/bot.../sendMessage
 
 - `npm run selfhosted:init-env`、`npm run selfhosted:doctor` 和 `npm run selfhosted:deploy` 会自动读取仓库根目录下的 `.local-secrets.env`
 - `npm run provision:check-env` 也会默认读取这些本地 secret 覆盖；只有检查示例文件时才需要 `--no-local-overrides`
-- 如果同时存在，`apikey.txt` 和 `mail.txt` 会覆盖 `.local-secrets.env` 中同名 provider / SMTP 字段
+- 如果同时存在，`apikey.txt` 和 `mail.txt` 会覆盖 `.local-secrets.env` 中同名 provider / SMTP / Cloudflare 字段
 - `apikey.txt` 单行裸 token 仍默认按 `VULTR_API_KEY` 处理
 - 如果需要切到其他 provider，`apikey.txt` 里直接写显式键名即可，例如 `DIGITALOCEAN_TOKEN=...` 或 `AWS_ACCESS_KEY_ID=...`
 - 当 `apikey.txt` 里只明确出现一家的 provider 凭据时，`npm run selfhosted:init-env` 会自动推断对应 `CLOUD_PROVIDER`
 - 如果 `CLOUD_PROVIDER` 和实际填入的 provider 凭据对不上，`npm run provision:check-env` 会直接给出切换提示
+- Hysteria2 会为每单自动分配 `pblaze.com` 下的随机子域名，不再要求手工填写域名
+- Cloudflare 的 `CLOUDFLARE_TOKEN` 和 `CLOUDFLARE_ZONE_ID` 放在 `.local-secrets.env` 即可，部署时会自动合并进远端环境并写入 DNS 记录
+- 主站域名继续使用 `anixops.com`，代理链路则固定在 `pblaze.com` 这条单独域名线上
 
 如果你准备继续完成“真实链上充值”或“真实链上审计锚定”，先看：
 

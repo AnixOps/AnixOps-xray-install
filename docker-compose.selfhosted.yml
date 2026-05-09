@@ -137,6 +137,9 @@ services:
       - API_URL=http://api:8787
       - NEXT_PUBLIC_WORKER_URL=${NEXT_PUBLIC_WORKER_URL:-}
       - NEXT_PUBLIC_RELEASE_PROFILE=${NEXT_PUBLIC_RELEASE_PROFILE:-}
+      - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN:-}
+      - CLOUDFLARE_ZONE_ID=${CLOUDFLARE_ZONE_ID:-}
+      - HYSTERIA2_PROXY_DOMAIN=${HYSTERIA2_PROXY_DOMAIN:-pblaze.com}
     depends_on:
       - api
     restart: unless-stopped

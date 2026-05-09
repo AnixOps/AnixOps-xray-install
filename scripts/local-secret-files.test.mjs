@@ -55,6 +55,8 @@ describe("local secret file helpers", () => {
         join(dir, ".local-secrets.env"),
         [
           "VULTR_API_KEY=vultr-secret-token",
+          "CLOUDFLARE_TOKEN=cf-secret-token",
+          "CLOUDFLARE_ZONE_ID=cf-zone-id",
           "SMTP_USER=ops@anixops.com",
           "SMTP_PASS=mail-app-password",
           "SMTP_HOST=mail.anixops.com",
@@ -67,6 +69,8 @@ describe("local secret file helpers", () => {
 
       expect(readUnifiedSecretEnvOverrides(dir)).toEqual({
         VULTR_API_KEY: "vultr-secret-token",
+        CLOUDFLARE_TOKEN: "cf-secret-token",
+        CLOUDFLARE_ZONE_ID: "cf-zone-id",
         SMTP_USER: "ops@anixops.com",
         SMTP_PASS: "mail-app-password",
         SMTP_HOST: "mail.anixops.com",
@@ -76,6 +80,8 @@ describe("local secret file helpers", () => {
       });
       expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
         VULTR_API_KEY: "vultr-secret-token",
+        CLOUDFLARE_TOKEN: "cf-secret-token",
+        CLOUDFLARE_ZONE_ID: "cf-zone-id",
         SMTP_USER: "ops@anixops.com",
         SMTP_PASS: "mail-app-password",
         SMTP_HOST: "mail.anixops.com",
@@ -129,6 +135,27 @@ describe("local secret file helpers", () => {
 
       expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
         DIGITALOCEAN_TOKEN: "do-secret-token",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads explicit Cloudflare credentials from apikey.txt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-secrets-"));
+    try {
+      writeFileSync(
+        join(dir, "apikey.txt"),
+        [
+          "CLOUDFLARE_TOKEN=cf-secret-token",
+          "CLOUDFLARE_ZONE_ID=cf-zone-id",
+        ].join("\n"),
+        "utf8",
+      );
+
+      expect(readLocalCredentialOverrides({ cwd: dir })).toEqual({
+        CLOUDFLARE_TOKEN: "cf-secret-token",
+        CLOUDFLARE_ZONE_ID: "cf-zone-id",
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });

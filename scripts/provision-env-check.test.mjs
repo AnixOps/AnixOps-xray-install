@@ -55,6 +55,30 @@ describe("provision env check", () => {
     }
   });
 
+  it("loads Cloudflare overrides from .local-secrets.env", () => {
+    const dir = mkdtempSync(join(tmpdir(), "anixops-provision-env-"));
+    try {
+      writeFileSync(join(dir, ".env.selfhosted"), "CLOUD_PROVIDER=vultr\nVULTR_API_KEY=\n", "utf8");
+      writeFileSync(
+        join(dir, ".local-secrets.env"),
+        [
+          "CLOUDFLARE_TOKEN=cf-token",
+          "CLOUDFLARE_ZONE_ID=cf-zone-id",
+        ].join("\n"),
+        "utf8",
+      );
+
+      expect(loadProvisionEnv(".env.selfhosted", { cwd: dir })).toEqual({
+        CLOUD_PROVIDER: "vultr",
+        VULTR_API_KEY: "",
+        CLOUDFLARE_TOKEN: "cf-token",
+        CLOUDFLARE_ZONE_ID: "cf-zone-id",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("can load env files without local secret overrides", () => {
     const dir = mkdtempSync(join(tmpdir(), "anixops-provision-env-"));
     try {

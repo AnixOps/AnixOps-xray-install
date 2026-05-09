@@ -37,9 +37,10 @@ export type NormalizedVlessRealityConfig = {
 export type NormalizedHysteria2Config = {
   protocol: "hysteria2";
   ip: string;
-  port: number;
+  port: number | string;
   password: string;
   obfs?: string;
+  domain?: string;
   insecure: boolean;
 };
 
@@ -53,7 +54,7 @@ function normalizeString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function normalizePort(value: unknown) {
+function normalizePortNumber(value: unknown) {
   if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
     return value;
   }
@@ -66,6 +67,106 @@ function normalizePort(value: unknown) {
   }
 
   return null;
+}
+
+function normalizeHysteria2PortSpec(value: unknown): number | string | null {
+  if (typeof value === "number") {
+    return normalizePortNumber(value);
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const segments = normalized.split(",").map((segment) => segment.trim());
+  if (segments.length === 0 || segments.some((segment) => !segment)) {
+    return null;
+  }
+
+  const normalizedSegments: string[] = [];
+  for (const segment of segments) {
+    if (/^\d+$/.test(segment)) {
+      const port = normalizePortNumber(Number(segment));
+      if (port === null) {
+        return null;
+      }
+      normalizedSegments.push(String(port));
+      continue;
+    }
+
+    const rangeMatch = segment.match(/^(\d+)-(\d+)$/);
+    if (!rangeMatch) {
+      return null;
+    }
+
+    const start = Number(rangeMatch[1]);
+    const end = Number(rangeMatch[2]);
+    if (
+      !Number.isInteger(start)
+      || !Number.isInteger(end)
+      || start < 1
+      || end > 65535
+      || start > end
+    ) {
+      return null;
+    }
+
+    normalizedSegments.push(`${start}-${end}`);
+  }
+
+  if (normalizedSegments.length === 1 && /^\d+$/.test(normalizedSegments[0])) {
+    return Number(normalizedSegments[0]);
+  }
+
+  return normalizedSegments.join(",");
+}
+
+function formatHysteria2PortSpec(port: number | string) {
+  return typeof port === "number" ? String(port) : port.trim();
+}
+
+function getHysteria2PortSegments(port: number | string) {
+  return formatHysteria2PortSpec(port)
+    .split(",")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function formatHysteria2SingboxPortSegment(segment: string) {
+  const rangeMatch = segment.match(/^(\d+)-(\d+)$/);
+  if (!rangeMatch) {
+    return segment;
+  }
+
+  return `${Number(rangeMatch[1])}:${Number(rangeMatch[2])}`;
+}
+
+function getHysteria2SingboxServerPorts(port: number | string) {
+  return getHysteria2PortSegments(port).map(formatHysteria2SingboxPortSegment);
+}
+
+function getHysteria2PrimaryPort(port: number | string) {
+  const [first] = getHysteria2PortSegments(port);
+  if (!first) {
+    return 0;
+  }
+
+  const match = first.match(/^(\d+)(?:-(\d+))?$/);
+  if (!match) {
+    return 0;
+  }
+
+  return Number(match[1]);
+}
+
+function hasHysteria2PortHopping(port: number | string) {
+  const portSpec = formatHysteria2PortSpec(port);
+  return portSpec.includes("-") || portSpec.includes(",");
 }
 
 function normalizeBoolean(value: unknown, fallback = true) {
@@ -135,19 +236,19 @@ export function normalizeRentalConfig(rawConfig: unknown): RentalConfigValidatio
 
   const protocol = normalizeString((rawConfig as Record<string, unknown>).protocol);
   const ip = normalizeString((rawConfig as Record<string, unknown>).ip);
-  const port = normalizePort((rawConfig as Record<string, unknown>).port);
 
-  if (!protocol || !ip || port === null) {
+  if (!protocol || !ip) {
     return { ok: false, status: 409, error: "Deployment is not ready yet." };
   }
 
   if (protocol === "vless-reality") {
+    const port = normalizePortNumber((rawConfig as Record<string, unknown>).port);
     const uuid = normalizeString((rawConfig as Record<string, unknown>).uuid);
     const serverName = normalizeString((rawConfig as Record<string, unknown>).serverName);
     const publicKey = normalizeString((rawConfig as Record<string, unknown>).publicKey);
     const shortId = normalizeString((rawConfig as Record<string, unknown>).shortId);
 
-    if (!uuid || !serverName || !publicKey || !shortId) {
+    if (port === null || !uuid || !serverName || !publicKey || !shortId) {
       return { ok: false, status: 409, error: "Deployment is not ready yet." };
     }
 
@@ -166,12 +267,14 @@ export function normalizeRentalConfig(rawConfig: unknown): RentalConfigValidatio
   }
 
   if (protocol === "hysteria2") {
+    const port = normalizeHysteria2PortSpec((rawConfig as Record<string, unknown>).port);
     const password = normalizeString((rawConfig as Record<string, unknown>).password);
-    if (!password) {
+    if (!password || port === null) {
       return { ok: false, status: 409, error: "Deployment is not ready yet." };
     }
 
     const obfs = normalizeString((rawConfig as Record<string, unknown>).obfs) || undefined;
+    const domain = normalizeString((rawConfig as Record<string, unknown>).domain) || undefined;
 
     return {
       ok: true,
@@ -182,6 +285,7 @@ export function normalizeRentalConfig(rawConfig: unknown): RentalConfigValidatio
         password,
         insecure: normalizeBoolean((rawConfig as Record<string, unknown>).insecure, true),
         ...(obfs ? { obfs } : {}),
+        ...(domain ? { domain } : {}),
       },
     };
   }
@@ -286,12 +390,18 @@ export function generateVlessRealitySubscription(params: {
 // Hysteria2 config generators
 export function generateHysteria2Config(params: {
   ip: string;
-  port: number;
+  port: number | string;
   password: string;
   obfs?: string;
+  domain?: string;
   insecure?: boolean;
 }) {
-  const { ip, port, password, obfs, insecure = true } = params;
+  const { ip, port, password, obfs, domain, insecure = true } = params;
+  const host = domain?.trim() || ip;
+  const portSpec = formatHysteria2PortSpec(port);
+  const portHopping = hasHysteria2PortHopping(port);
+  const primaryPort = getHysteria2PrimaryPort(port);
+  const hopPorts = getHysteria2SingboxServerPorts(port);
 
   const uriParams = new URLSearchParams({
     insecure: insecure ? "1" : "0",
@@ -301,17 +411,20 @@ export function generateHysteria2Config(params: {
     uriParams.set("obfs-password", obfs);
   }
 
-  const uri = `hysteria2://user:${encodeURIComponent(password)}@${ip}:${port}/?${uriParams.toString()}#AnixOps`;
+  const uri = `hysteria2://user:${encodeURIComponent(password)}@${host}:${portSpec}/?${uriParams.toString()}#AnixOps`;
+  const clashHopBlock = portHopping
+    ? `    ports: ${portSpec}\n    hop-interval: 30\n`
+    : "";
 
   return {
     clashMeta: `proxies:
   - name: AnixOps
     type: hysteria2
-    server: ${ip}
-    port: ${port}
-    password: "${password}"
+    server: ${host}
+    port: ${primaryPort}
+${clashHopBlock}    password: "${password}"
     udp: true
-    sni: ${ip}
+    sni: ${host}
     skip-cert-verify: ${insecure}${obfs ? `
     obfs: salamander
     obfs-password: "${obfs}"` : ""}`,
@@ -320,13 +433,17 @@ export function generateHysteria2Config(params: {
       outbounds: [{
         type: "hysteria2",
         tag: "AnixOps",
-        server: ip,
-        server_port: port,
+        server: host,
+        server_port: primaryPort,
+        ...(portHopping ? {
+          server_ports: hopPorts,
+          hop_interval: "30s",
+        } : {}),
         password,
         tls: {
           enabled: true,
           insecure,
-          server_name: ip,
+          server_name: host,
         },
         ...(obfs ? { obfs: { type: "salamander", password: obfs } } : {}),
       }],
@@ -339,9 +456,10 @@ export function generateHysteria2Config(params: {
 
 export function generateHysteria2Subscription(params: {
   ip: string;
-  port: number;
+  port: number | string;
   password: string;
   obfs?: string;
+  domain?: string;
   insecure?: boolean;
 }) {
   const single = generateHysteria2Config(params).v2rayN;

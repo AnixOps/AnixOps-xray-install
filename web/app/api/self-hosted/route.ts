@@ -44,6 +44,96 @@ async function requireUser(request: Request) {
   return res.json();
 }
 
+const DEFAULT_HYSTERIA2_PORT_SPEC = "20000-50000";
+const DEFAULT_HYSTERIA2_PROXY_DOMAIN = "pblaze.com";
+
+function firstNonEmpty(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = typeof value === "string" ? value.trim() : String(value || "").trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
+function normalizeHysteria2PortSpec(value: unknown) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
+    return String(value);
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    const port = Number(normalized);
+    return Number.isInteger(port) && port > 0 && port <= 65535 ? String(port) : null;
+  }
+
+  const rangeMatch = normalized.match(/^(\d+)-(\d+)$/);
+  if (!rangeMatch) {
+    return null;
+  }
+
+  const start = Number(rangeMatch[1]);
+  const end = Number(rangeMatch[2]);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end > 65535 || start > end) {
+    return null;
+  }
+
+  return `${start}-${end}`;
+}
+
+function normalizeHostname(value: unknown) {
+  const normalized = firstNonEmpty(value).toLowerCase().replace(/\.$/, "");
+  return normalized || "";
+}
+
+function getHysteria2PortSpec() {
+  return normalizeHysteria2PortSpec(process.env.HYSTERIA2_PORT_SPEC) || DEFAULT_HYSTERIA2_PORT_SPEC;
+}
+
+function getHysteria2PrimaryPort(portSpec: string) {
+  const firstSegment = portSpec.split(",")[0]?.trim() || "";
+  const match = firstSegment.match(/^(\d+)(?:-(\d+))?$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function getHysteria2ProxyDomain() {
+  return normalizeHostname(process.env.HYSTERIA2_PROXY_DOMAIN) || DEFAULT_HYSTERIA2_PROXY_DOMAIN;
+}
+
+function generateHysteria2Domain() {
+  return `${randomBytes(6).toString("hex")}.${getHysteria2ProxyDomain()}`;
+}
+
+function getCloudflareDnsConfig() {
+  const token = firstNonEmpty(
+    process.env.CLOUDFLARE_TOKEN,
+    process.env.CLOUDFLARE_API_TOKEN,
+    process.env.CLOUDFLARE_DNS_TOKEN,
+    process.env.CF_API_TOKEN,
+  );
+  const zoneId = firstNonEmpty(
+    process.env.CLOUDFLARE_ZONE_ID,
+    process.env.CLOUDFLARE_ZONEID,
+    process.env.CF_ZONE_ID,
+    process.env.CF_ZONEID,
+  );
+
+  if (!token || !zoneId) {
+    throw new Error("Hysteria2 DNS automation requires CLOUDFLARE_TOKEN and CLOUDFLARE_ZONE_ID from .local-secrets.env");
+  }
+
+  return { token, zoneId };
+}
+
 // Self-hosted deployment API
 export async function POST(request: Request) {
   try {
@@ -53,7 +143,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { deployMethod, protocol, domain, dnsToken, cleanupAt, cleanupHours } = body;
+    const { deployMethod, protocol, cleanupAt, cleanupHours } = body;
 
     if (!deployMethod || !protocol) {
       return NextResponse.json(
@@ -147,13 +237,12 @@ async function deployAsync(
   deployId: string,
   config: Record<string, unknown>,
 ) {
-  const { deployMethod, protocol, domain, dnsToken } = config as {
+  const { deployMethod, protocol } = config as {
     deployMethod: "api" | "ssh";
     protocol: string;
-    domain?: string;
-    dnsToken?: string;
     cleanupAt?: string;
   };
+  const hysteria2Domain = protocol === "hysteria2" ? generateHysteria2Domain() : undefined;
 
   try {
     let ip: string;
@@ -175,20 +264,17 @@ async function deployAsync(
       deployLog("info", deployId, "SSH connection verified");
       deployments.set(deployId, { ...deployments.get(deployId)!, progress: 40 });
 
+      if (hysteria2Domain) {
+        await createHysteria2DnsRecord(deployId, hysteria2Domain, ip);
+      }
+
       // Step 2: Deploy protocol (40-90%)
       deployLog("info", deployId, `Deploying ${protocol}...`);
       deployments.set(deployId, { ...deployments.get(deployId)!, progress: 50 });
-      const result = await deployProtocolWithPassword(ip, sshPort, sshPassword, protocol, domain);
+      const result = await deployProtocolWithPassword(ip, sshPort, sshPassword, protocol, hysteria2Domain);
       await verifyDeploymentHealthWithPassword(ip, sshPort, sshPassword, result);
       deployLog("info", deployId, "Protocol deployed");
       deployments.set(deployId, { ...deployments.get(deployId)!, progress: 90 });
-
-      // Step 3: DNS if provided
-      if (domain && dnsToken) {
-        deployLog("info", deployId, `Creating DNS record for ${domain}...`);
-        await createCloudflareDNSRecord(dnsToken as string, domain, ip);
-        deployLog("info", deployId, "DNS record created");
-      }
 
       // Step 4: Install automatic local cleanup timer on user-owned server
       const cleanupAt = (config as { cleanupAt?: string }).cleanupAt || resolveSelfHostedCleanupAt({});
@@ -230,14 +316,6 @@ async function deployAsync(
     deployLog("info", deployId, `VPS created: ${ip}`);
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 30 });
 
-    // Step 1.5: Create Cloudflare DNS record if domain + dnsToken provided
-    if (domain && dnsToken) {
-      deployLog("info", deployId, `Creating DNS record for ${domain}...`);
-      await createCloudflareDNSRecord(dnsToken as string, domain, ip);
-      deployLog("info", deployId, "DNS record created");
-      deployments.set(deployId, { ...deployments.get(deployId)!, progress: 40 });
-    }
-
     // Step 2: Wait for SSH (30-50%)
     deployLog("info", deployId, "Waiting for SSH...");
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 40 });
@@ -245,10 +323,14 @@ async function deployAsync(
     deployLog("info", deployId, "SSH ready");
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 50 });
 
+    if (hysteria2Domain) {
+      await createHysteria2DnsRecord(deployId, hysteria2Domain, ip);
+    }
+
     // Step 3: Deploy protocol (50-90%)
     deployLog("info", deployId, `Deploying ${protocol}...`);
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 60 });
-    const result = await deployProtocol(ip, protocol, domain as string | undefined);
+    const result = await deployProtocol(ip, protocol, hysteria2Domain);
     await verifyDeploymentHealth(ip, result);
     deployLog("info", deployId, "Protocol deployed");
     deployments.set(deployId, { ...deployments.get(deployId)!, progress: 90 });
@@ -667,7 +749,7 @@ async function deployProtocol(
   if (protocol === "hysteria2") {
     const password = randomUUID().slice(0, 16);
     const obfs = randomUUID().slice(0, 12);
-    const port = 443;
+    const port = getHysteria2PortSpec();
 
     const scriptPath = process.cwd() + "/scripts/hysteria2.sh";
     const { readFileSync } = await import("fs");
@@ -687,10 +769,10 @@ async function deployProtocol(
     return {
       protocol: "hysteria2",
       ip,
-      port: String(port),
+      port,
       password,
       obfs,
-      insecure: domain ? "false" : "true",
+      insecure: "true",
       ...(domain && { domain }),
     };
   }
@@ -747,7 +829,7 @@ async function deployProtocolWithPassword(
   if (protocol === "hysteria2") {
     const password = randomUUID().slice(0, 16);
     const obfs = randomUUID().slice(0, 12);
-    const hyPort = 443;
+    const hyPort = getHysteria2PortSpec();
 
     const scriptPath = process.cwd() + "/scripts/hysteria2.sh";
     const { readFileSync } = await import("fs");
@@ -767,10 +849,10 @@ async function deployProtocolWithPassword(
     return {
       protocol: "hysteria2",
       ip,
-      port: String(hyPort),
+      port: hyPort,
       password,
       obfs,
-      insecure: domain ? "false" : "true",
+      insecure: "true",
       ...(domain && { domain }),
     };
   }
@@ -838,9 +920,9 @@ async function verifyRemoteState(ssh: NodeSSH, config: Record<string, string>): 
       throw new Error("Hysteria2 deployment failed: config file is missing");
     }
 
-    const portCheck = await ssh.execCommand("ss -lnup | grep ':443 '");
+    const portCheck = await ssh.execCommand(`ss -lnup | grep ':${getHysteria2PrimaryPort(String(config.port))} '`);
     if (!portCheck.stdout?.trim()) {
-      throw new Error("Hysteria2 deployment failed: UDP port 443 is not listening");
+      throw new Error("Hysteria2 deployment failed: UDP port is not listening");
     }
   }
 }
@@ -962,39 +1044,21 @@ EOF`
   return { serviceName, timerName };
 }
 
+async function createHysteria2DnsRecord(deployId: string, domain: string, ip: string) {
+  const { token, zoneId } = getCloudflareDnsConfig();
+  deployLog("info", deployId, `Creating DNS record for ${domain}...`);
+  await createCloudflareDNSRecord(token, zoneId, domain, ip);
+  deployLog("info", deployId, `DNS record ready for ${domain}`);
+}
+
 // Cloudflare DNS record creation
 async function createCloudflareDNSRecord(
   dnsToken: string,
+  zoneId: string,
   domain: string,
   ip: string,
 ): Promise<void> {
   const baseUrl = "https://api.cloudflare.com/client/v4";
-
-  // Extract the zone (base domain) from the full domain
-  // e.g., "sub.example.com" → zone = "example.com", name = "sub.example.com"
-  const parts = domain.split(".");
-  if (parts.length < 2) throw new Error(`Invalid domain: ${domain}`);
-
-  // Try progressively shorter domains to find the zone
-  let zoneId: string | null = null;
-  let zoneName: string | null = null;
-  for (let i = 1; i < parts.length - 1; i++) {
-    const candidate = parts.slice(i).join(".");
-    const res = await fetch(`${baseUrl}/zones?name=${candidate}&status=active`, {
-      headers: { Authorization: `Bearer ${dnsToken}` },
-    });
-    if (!res.ok) continue;
-    const data = await res.json();
-    if (data.result?.length > 0) {
-      zoneId = data.result[0].id;
-      zoneName = candidate;
-      break;
-    }
-  }
-
-  if (!zoneId) throw new Error(`No active Cloudflare zone found for domain: ${domain}`);
-
-  const recordName = zoneName === domain ? domain : domain.replace(`.${zoneName}`, "");
 
   // Check for existing A record with same name
   const listRes = await fetch(
@@ -1013,7 +1077,7 @@ async function createCloudflareDNSRecord(
           Authorization: `Bearer ${dnsToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ type: "A", name: recordName, content: ip, proxied: false }),
+        body: JSON.stringify({ type: "A", name: domain, content: ip, proxied: false }),
       });
       if (!updateRes.ok) {
         const errData = await updateRes.json();
@@ -1030,7 +1094,7 @@ async function createCloudflareDNSRecord(
       Authorization: `Bearer ${dnsToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ type: "A", name: recordName, content: ip, proxied: false }),
+    body: JSON.stringify({ type: "A", name: domain, content: ip, proxied: false }),
   });
 
   if (!createRes.ok) {

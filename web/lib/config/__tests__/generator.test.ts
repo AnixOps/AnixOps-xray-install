@@ -4,6 +4,7 @@ import {
   decodeBase64Text,
   generateVlessRealityConfig,
   generateHysteria2Config,
+  generateHysteria2Subscription,
   generateVlessRealitySubscription,
   isValidSubscriptionUri,
   isValidUniversalSubscription,
@@ -151,6 +152,42 @@ describe("Hysteria2 config generator", () => {
     expect(parsed.outbounds[0].tls.insecure).toBe(false);
   });
 
+  it("uses a supplied domain as the connection host and SNI", () => {
+    const config = generateHysteria2Config({
+      ip: "5.6.7.8",
+      domain: "random.pblaze.com",
+      port: 443,
+      password: "pass123",
+      insecure: true,
+    });
+
+    expect(config.clashMeta).toContain("server: random.pblaze.com");
+    expect(config.clashMeta).toContain("sni: random.pblaze.com");
+    expect(config.v2rayN).toContain("@random.pblaze.com:443/");
+
+    const parsed = JSON.parse(config.singbox);
+    expect(parsed.outbounds[0].server).toBe("random.pblaze.com");
+    expect(parsed.outbounds[0].tls.server_name).toBe("random.pblaze.com");
+  });
+
+  it("adds port hopping fields when the port is a range", () => {
+    const config = generateHysteria2Config({
+      ip: "5.6.7.8",
+      port: "20000-50000",
+      password: "hop-pass",
+      insecure: true,
+    });
+
+    expect(config.clashMeta).toContain("ports: 20000-50000");
+    expect(config.clashMeta).toContain("hop-interval: 30");
+    expect(config.v2rayN).toContain("@5.6.7.8:20000-50000/");
+
+    const parsed = JSON.parse(config.singbox);
+    expect(parsed.outbounds[0].server_port).toBe(20000);
+    expect(parsed.outbounds[0].server_ports).toEqual(["20000:50000"]);
+    expect(parsed.outbounds[0].hop_interval).toBe("30s");
+  });
+
   it("URL-encodes password with special characters in share link", () => {
     const config = generateHysteria2Config({
       ip: "5.6.7.8",
@@ -294,6 +331,46 @@ describe("config generator edge cases", () => {
       ip: "1.2.3.4",
       port: 443,
     })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("accepts hysteria2 port hopping ranges in rental configs", () => {
+    const validation = normalizeRentalConfig({
+      protocol: "hysteria2",
+      ip: "1.2.3.4",
+      port: "20000-50000",
+      password: "pass123",
+      insecure: true,
+    });
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) {
+      return;
+    }
+    if (validation.config.protocol !== "hysteria2") {
+      return;
+    }
+
+    expect(validation.config.port).toBe("20000-50000");
+    expect(decodeBase64Text(generateHysteria2Subscription(validation.config))).toContain("20000-50000");
+  });
+
+  it("preserves a hysteria2 domain when normalizing configs", () => {
+    const validation = normalizeRentalConfig({
+      protocol: "hysteria2",
+      ip: "1.2.3.4",
+      port: 443,
+      password: "pass123",
+      domain: "random.pblaze.com",
+      insecure: true,
+    });
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok || validation.config.protocol !== "hysteria2") {
+      return;
+    }
+
+    expect(validation.config.domain).toBe("random.pblaze.com");
+    expect(generateHysteria2Config(validation.config).v2rayN).toContain("@random.pblaze.com:443/");
   });
 
   it("rejects universal subscriptions that decode to undefined fields", () => {

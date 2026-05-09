@@ -34,6 +34,9 @@
 
 ## Hysteria2 客户端
 
+默认已启用端口跳跃，分享链接会使用随机子域名加端口范围，例如 `x1y2z3.pblaze.com:20000-50000`。客户端导入后会自动携带对应的 hopping 配置。
+这里不会复用 `anixops.com` 作为 Hysteria2 的 SNI，主站和代理链路是分开的。
+
 ### Windows - Nekoray
 
 1. 下载 [Nekoray](https://github.com/MatsuriDayo/nekoray/releases)
@@ -69,7 +72,7 @@ vless://UUID@IP:443?encryption=none&security=reality&type=grpc&serviceName=随�
 ### Hysteria2
 
 ```
-hysteria2://user:密码@IP:443/?insecure=1&obfs=salamander&obfs-password=混淆密码#AnixOps
+hysteria2://user:密码@随机子域名.pblaze.com:20000-50000/?insecure=1&obfs=salamander&obfs-password=混淆密码#AnixOps
 ```
 
 ## 常见问题

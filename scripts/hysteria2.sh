@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hysteria2 Server Installation Script (Non-interactive)
 # Official docs: https://v2.hysteria.network/docs/
-# Usage: ./hysteria2.sh --port 443 --password PASSWORD [--cert CERT] [--key KEY] [--obfs OBFS_PASSWORD]
+# Usage: ./hysteria2.sh --port 443|20000-50000 --password PASSWORD [--cert CERT] [--key KEY] [--obfs OBFS_PASSWORD]
 
 set -euo pipefail
 
@@ -28,6 +28,10 @@ KEY=""
 OBFS=""
 DOMAIN=""
 EMAIL="auto@anixops.com"
+PORT_IS_RANGE=false
+PORT_START=""
+PORT_END=""
+FIREWALL_BACKEND=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -42,15 +46,64 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+normalize_port_spec() {
+  local raw="$1"
+  if [[ "$raw" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+    local start="${BASH_REMATCH[1]}"
+    local end="${BASH_REMATCH[2]}"
+    if [[ "$start" -lt 1 || "$end" -gt 65535 || "$start" -gt "$end" ]]; then
+      return 1
+    fi
+    PORT_IS_RANGE=true
+    PORT_START="$start"
+    PORT_END="$end"
+    printf '%s-%s' "$start" "$end"
+    return 0
+  fi
+
+  if [[ "$raw" =~ ^[0-9]+$ ]] && [[ "$raw" -ge 1 && "$raw" -le 65535 ]]; then
+    PORT_IS_RANGE=false
+    PORT_START="$raw"
+    PORT_END="$raw"
+    printf '%s' "$raw"
+    return 0
+  fi
+
+  return 1
+}
+
+detect_firewall_backend() {
+  if command -v nft &>/dev/null; then
+    printf '%s' "nftables"
+    return 0
+  fi
+
+  if command -v iptables &>/dev/null; then
+    printf '%s' "iptables"
+    return 0
+  fi
+
+  return 1
+}
+
 # Validate inputs
-if [[ ! "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-  log_error "Invalid port: $PORT"
+PORT_INPUT="$PORT"
+if ! PORT="$(normalize_port_spec "$PORT_INPUT")"; then
+  log_error "Invalid port: $PORT_INPUT"
   exit 1
 fi
 
 if [[ -n "$PASSWORD" && ${#PASSWORD} -lt 8 ]]; then
   log_error "Password must be at least 8 characters"
   exit 1
+fi
+
+if [[ "$PORT_IS_RANGE" == true ]]; then
+  if FIREWALL_BACKEND="$(detect_firewall_backend)"; then
+    log_info "Detected firewall backend for port hopping: ${FIREWALL_BACKEND}"
+  else
+    log_warn "No nft/iptables backend detected; Hysteria2 port hopping may fail"
+  fi
 fi
 
 if [[ -n "$DOMAIN" && ! "$DOMAIN" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -131,6 +184,7 @@ ExecStart=${INSTALL_BIN} server --config ${CONFIG_FILE}
 User=hysteria
 Group=hysteria
 Environment=HYSTERIA_LOG_LEVEL=info
+${FIREWALL_BACKEND:+Environment=HYSTERIA_FIREWALL_BACKEND=${FIREWALL_BACKEND}}
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 NoNewPrivileges=true
@@ -230,16 +284,32 @@ EOF
 
 # Firewall
 open_firewall() {
-  log_info "Opening port ${PORT}/udp..."
+  if [[ "$PORT_IS_RANGE" == true ]]; then
+    log_info "Opening UDP port range ${PORT_START}-${PORT_END}..."
+  else
+    log_info "Opening port ${PORT}/udp..."
+  fi
 
   if command -v ufw &>/dev/null; then
-    ufw allow "${PORT}/udp"
+    if [[ "$PORT_IS_RANGE" == true ]]; then
+      ufw allow "${PORT_START}:${PORT_END}/udp"
+    else
+      ufw allow "${PORT}/udp"
+    fi
     ufw --force enable 2>/dev/null || true
   elif command -v firewall-cmd &>/dev/null; then
-    firewall-cmd --permanent --add-port="${PORT}/udp"
+    if [[ "$PORT_IS_RANGE" == true ]]; then
+      firewall-cmd --permanent --add-port="${PORT_START}-${PORT_END}/udp"
+    else
+      firewall-cmd --permanent --add-port="${PORT}/udp"
+    fi
     firewall-cmd --reload
   else
-    log_warn "No firewall tool found, ensure port ${PORT}/udp is open"
+    if [[ "$PORT_IS_RANGE" == true ]]; then
+      log_warn "No firewall tool found, ensure UDP ports ${PORT_START}-${PORT_END} are open"
+    else
+      log_warn "No firewall tool found, ensure port ${PORT}/udp is open"
+    fi
   fi
 }
 

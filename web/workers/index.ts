@@ -111,7 +111,7 @@ type NormalizedProvisionedConfig =
   | {
     protocol: "hysteria2";
     ip: string;
-    port: number;
+    port: number | string;
     password: string;
     insecure: boolean;
     obfs?: string;
@@ -121,7 +121,7 @@ function normalizeProvisionConfigString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function normalizeProvisionConfigPort(value: unknown) {
+function normalizeProvisionConfigPortNumber(value: unknown) {
   if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
     return value;
   }
@@ -135,6 +135,39 @@ function normalizeProvisionConfigPort(value: unknown) {
   }
 
   return null;
+}
+
+function normalizeProvisionHysteria2PortSpec(value: unknown): number | string | null {
+  if (typeof value === "number") {
+    return normalizeProvisionConfigPortNumber(value);
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    const port = Number(normalized);
+    return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+  }
+
+  const rangeMatch = normalized.match(/^(\d+)-(\d+)$/);
+  if (!rangeMatch) {
+    return null;
+  }
+
+  const start = Number(rangeMatch[1]);
+  const end = Number(rangeMatch[2]);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end > 65535 || start > end) {
+    return null;
+  }
+
+  return `${start}-${end}`;
 }
 
 function normalizeProvisionConfigBoolean(value: unknown, fallback = true) {
@@ -164,19 +197,19 @@ function normalizeProvisionedConfig(rawConfig: unknown): { ok: true; config: Nor
   const record = rawConfig as Record<string, unknown>;
   const protocol = normalizeProvisionConfigString(record.protocol);
   const ip = normalizeProvisionConfigString(record.ip);
-  const port = normalizeProvisionConfigPort(record.port);
 
-  if (!protocol || !ip || port === null) {
+  if (!protocol || !ip) {
     return { ok: false, error: "Deployment is not ready yet." };
   }
 
   if (protocol === "vless-reality") {
+    const port = normalizeProvisionConfigPortNumber(record.port);
     const uuid = normalizeProvisionConfigString(record.uuid);
     const serverName = normalizeProvisionConfigString(record.serverName);
     const publicKey = normalizeProvisionConfigString(record.publicKey);
     const shortId = normalizeProvisionConfigString(record.shortId);
 
-    if (!uuid || !serverName || !publicKey || !shortId) {
+    if (port === null || !uuid || !serverName || !publicKey || !shortId) {
       return { ok: false, error: "Deployment is not ready yet." };
     }
 
@@ -195,8 +228,9 @@ function normalizeProvisionedConfig(rawConfig: unknown): { ok: true; config: Nor
   }
 
   if (protocol === "hysteria2") {
+    const port = normalizeProvisionHysteria2PortSpec(record.port);
     const password = normalizeProvisionConfigString(record.password);
-    if (!password) {
+    if (!password || port === null) {
       return { ok: false, error: "Deployment is not ready yet." };
     }
 

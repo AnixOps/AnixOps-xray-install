@@ -147,6 +147,34 @@ function readProviderOverridesFromParsed(parsed) {
   return env;
 }
 
+function readCloudflareOverridesFromParsed(parsed) {
+  const env = {};
+  const cloudflareToken = firstEntryValue(parsed.entries, [
+    "CLOUDFLARE_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_DNS_TOKEN",
+    "CF_API_TOKEN",
+    "CF_TOKEN",
+  ]);
+  const cloudflareZoneId = firstEntryValue(parsed.entries, [
+    "CLOUDFLARE_ZONE_ID",
+    "CLOUDFLARE_ZONEID",
+    "CF_ZONE_ID",
+    "CF_ZONEID",
+    "ZONE_ID",
+    "ZONEID",
+  ]);
+
+  if (cloudflareToken) {
+    env.CLOUDFLARE_TOKEN = cloudflareToken;
+  }
+  if (cloudflareZoneId) {
+    env.CLOUDFLARE_ZONE_ID = cloudflareZoneId;
+  }
+
+  return env;
+}
+
 function readSmtpOverridesFromParsed(parsed) {
   const env = {};
   const smtpHost = firstEntryValue(parsed.entries, ["SMTP_HOST", "host", "smtp_host", "smtpHost", "server", "服务器", "主机"]);
@@ -191,6 +219,7 @@ function readUnifiedSecretEnvOverrides(cwd) {
   const parsed = parseKeyValueSecretFile(content);
   return {
     ...readProviderOverridesFromParsed(parsed),
+    ...readCloudflareOverridesFromParsed(parsed),
     ...readSmtpOverridesFromParsed(parsed),
   };
 }
@@ -201,7 +230,11 @@ function readApiKeyOverrides(cwd) {
     return {};
   }
 
-  return readProviderOverridesFromParsed(parseKeyValueSecretFile(content));
+  const parsed = parseKeyValueSecretFile(content);
+  return {
+    ...readProviderOverridesFromParsed(parsed),
+    ...readCloudflareOverridesFromParsed(parsed),
+  };
 }
 
 function readMailOverrides(cwd) {

@@ -128,6 +128,8 @@ describe("self-hosted init env helpers", () => {
       options: {
         localCredentials: {
           VULTR_API_KEY: "vultr-from-file",
+          CLOUDFLARE_TOKEN: "cf-from-file",
+          CLOUDFLARE_ZONE_ID: "cf-zone-id",
           SMTP_HOST: "mail.example.com",
           SMTP_PORT: "465",
           SMTP_USER: "ops@example.com",
@@ -139,6 +141,8 @@ describe("self-hosted init env helpers", () => {
     });
 
     expect(result.env.VULTR_API_KEY).toBe("vultr-from-file");
+    expect(result.env.CLOUDFLARE_TOKEN).toBe("cf-from-file");
+    expect(result.env.CLOUDFLARE_ZONE_ID).toBe("cf-zone-id");
     expect(result.env.SMTP_HOST).toBe("mail.example.com");
     expect(result.env.SMTP_USER).toBe("ops@example.com");
     expect(result.env.SMTP_PASS).toBe("smtp-password");

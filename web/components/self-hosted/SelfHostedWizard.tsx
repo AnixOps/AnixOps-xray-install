@@ -20,8 +20,6 @@ export function SelfHostedWizard() {
   const apiKey = useDeployStore((s) => s.apiKey);
   const region = useDeployStore((s) => s.region);
   const plan = useDeployStore((s) => s.plan);
-  const dnsToken = useDeployStore((s) => s.dnsToken);
-  const domain = useDeployStore((s) => s.domain);
   const protocol = useDeployStore((s) => s.protocol);
   const serverIp = useDeployStore((s) => s.serverIp);
   const sshPort = useDeployStore((s) => s.sshPort);
@@ -42,8 +40,6 @@ export function SelfHostedWizard() {
   const setApiKey = useDeployStore((s) => s.setApiKey);
   const setRegion = useDeployStore((s) => s.setRegion);
   const setPlan = useDeployStore((s) => s.setPlan);
-  const setDnsToken = useDeployStore((s) => s.setDnsToken);
-  const setDomain = useDeployStore((s) => s.setDomain);
   const setProtocol = useDeployStore((s) => s.setProtocol);
   const setServerIp = useDeployStore((s) => s.setServerIp);
   const setSshPort = useDeployStore((s) => s.setSshPort);
@@ -102,9 +98,10 @@ export function SelfHostedWizard() {
     if (config.protocol === "hysteria2" && config.password) {
       return generateHysteria2Config({
         ip: config.ip,
-        port: Number(config.port),
+        port: config.port,
         password: config.password,
         obfs: config.obfs,
+        domain: config.domain,
         insecure: config.insecure !== "false",
       }).v2rayN;
     }
@@ -157,7 +154,7 @@ export function SelfHostedWizard() {
       ]
     : [
         "Connection path and credentials stay in one place to reduce context switching.",
-        "Protocol, domain, and cleanup policy are reviewed as one delivery surface.",
+        "Protocol, connectivity, and cleanup policy are reviewed as one delivery surface.",
         "Cost and rollback risk are isolated before deployment starts.",
       ];
 
@@ -268,7 +265,13 @@ export function SelfHostedWizard() {
               <SummaryRow label={t("selfhosted.summary.protocol")} value={String(config.protocol ?? "")} />
               <SummaryRow
                 label={t("selfhosted.summary.connection")}
-                value={config.ip ? `${String(config.ip)}:${String(config.port ?? "")}` : "—"}
+                value={
+                  config.domain
+                    ? `${String(config.domain)}:${String(config.port ?? "")}`
+                    : config.ip
+                      ? `${String(config.ip)}:${String(config.port ?? "")}`
+                      : "—"
+                }
                 mono
               />
               <SummaryRow
@@ -606,11 +609,11 @@ export function SelfHostedWizard() {
       cleanupMode === "duration"
         ? cleanupHours.trim().length > 0
         : cleanupAtInput.trim().length > 0;
-    const canProceed = Boolean((protocol === "vless-reality" || domain) && protocol && hasCleanupValue);
+    const canProceed = Boolean(protocol && hasCleanupValue);
 
     return (
       <WizardFrame
-        eyebrow="Domain and protocol"
+        eyebrow={isZh ? "交付策略" : "Delivery"}
         title={t("selfhosted.step2.title")}
         description={localText.cleanupDatetimeHint}
         stepLabel="2 / 3"
@@ -618,16 +621,15 @@ export function SelfHostedWizard() {
           <WizardAside
             title={isZh ? "本步重点" : "This step defines delivery"}
             rows={[
-              { label: t("selfhosted.domain.label"), value: domain || "—" },
-              { label: t("selfhosted.dns.label"), value: dnsToken ? "Configured" : "Optional" },
               { label: t("selfhosted.review.protocol"), value: protocol ? t(PROTOCOL_INFO[protocol].nameKey) : "—" },
+              { label: isZh ? "代理域名" : "Proxy domain", value: protocol === "hysteria2" ? "pblaze.com" : "—" },
               { label: localText.cleanupReview, value: cleanupSummary },
             ]}
             footer={(
               <div className="space-y-2">
                 {[
-                  isZh ? "VLESS Reality 可以不依赖域名继续部署。" : "VLESS Reality can continue without a domain.",
-                  isZh ? "如果写入 DNS Token，后续域名处理将保持自动化。" : "Providing a DNS token keeps follow-up domain work automated.",
+                  isZh ? "Hysteria2 会为每单自动生成 pblaze.com 下的随机子域名。" : "Hysteria2 will auto-generate a random subdomain under pblaze.com for each order.",
+                  isZh ? "Cloudflare Token 和 Zone ID 从 .local-secrets.env 读取。" : "Cloudflare token and zone ID are read from .local-secrets.env.",
                   isZh ? "清理策略应该在部署前决定，而不是在节点上线后补救。" : "Cleanup policy should be decided before deploy, not patched in after launch.",
                 ].map((note) => (
                   <div
@@ -643,26 +645,15 @@ export function SelfHostedWizard() {
         )}
       >
         <div className="space-y-7">
-          <section className="grid gap-5 md:grid-cols-2">
-            <div className="space-y-3">
-              <Label>{t("selfhosted.domain.label")}</Label>
-              <Input
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder={t("selfhosted.domain.placeholder")}
-                className="h-12 rounded-[1.1rem]"
-              />
+          <section className="rounded-[1.75rem] border border-black/5 bg-white/70 p-4 md:p-5">
+            <div className="text-sm font-semibold tracking-[-0.02em]">
+              {isZh ? "随机子域名策略" : "Random subdomain policy"}
             </div>
-            <div className="space-y-3">
-              <Label>{t("selfhosted.dns.label")}</Label>
-              <Input
-                type="password"
-                value={dnsToken}
-                onChange={(e) => setDnsToken(e.target.value)}
-                placeholder={t("selfhosted.dns.placeholder")}
-                className="h-12 rounded-[1.1rem]"
-              />
-            </div>
+            <p className="mt-2 text-sm leading-7 text-muted-foreground">
+              {isZh
+                ? "Hysteria2 会在 pblaze.com 下为每单自动生成随机子域名，Cloudflare Token 和 Zone ID 从 .local-secrets.env 读取。"
+                : "Hysteria2 will auto-generate a random subdomain under pblaze.com for each order, with Cloudflare token and zone ID read from .local-secrets.env."}
+            </p>
           </section>
 
           <section>
@@ -788,8 +779,6 @@ export function SelfHostedWizard() {
         const body: Record<string, unknown> = {
           deployMethod,
           protocol,
-          domain,
-          dnsToken,
           ...(cleanupMode === "duration"
             ? { cleanupHours: cleanupHours ? Number(cleanupHours) : undefined }
             : { cleanupAt: cleanupAtInput ? new Date(cleanupAtInput).toISOString() : undefined }),
