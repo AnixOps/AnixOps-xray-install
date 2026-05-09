@@ -136,6 +136,9 @@ interface ProtocolInstallPlan {
   serverName?: string;
   password?: string;
   obfs?: string;
+  domain?: string;
+  sni?: string;
+  pinSHA256?: string;
   script?: string;
   compliancePolicy?: CompliancePolicy;
 }
@@ -181,6 +184,16 @@ function getHysteria2PrimaryPort(portSpec: string) {
   const firstSegment = portSpec.split(",")[0]?.trim() || "";
   const match = firstSegment.match(/^(\d+)(?:-(\d+))?$/);
   return match ? Number(match[1]) : 0;
+}
+
+function parseHysteria2InstallOutput(output: string) {
+  const sniMatch = output.match(/^HY2_SNI=(.+)$/m);
+  const pinMatch = output.match(/^HY2_PIN_SHA256=(.+)$/m);
+
+  return {
+    sni: sniMatch?.[1]?.trim() || "",
+    pinSHA256: pinMatch?.[1]?.trim().toLowerCase() || "",
+  };
 }
 
 function buildAttemptMeta(attempt: ProvisionAttemptContext) {
@@ -721,6 +734,7 @@ function buildProtocolConfigFromOutput(
     };
   }
 
+  const tlsMeta = parseHysteria2InstallOutput(output);
   stages.record("stage3-6-config-parse", "ok", "Protocol config parsed", {
     protocol: plan.protocol,
     port: plan.port,
@@ -733,6 +747,11 @@ function buildProtocolConfigFromOutput(
     password: plan.password || "",
     obfs: plan.obfs || "",
     insecure: "true",
+    ...(plan.domain ? { domain: plan.domain } : {}),
+    ...(plan.sni ? { sni: plan.sni } : {}),
+    ...(plan.pinSHA256 ? { pinSHA256: plan.pinSHA256 } : {}),
+    ...(tlsMeta.sni ? { sni: tlsMeta.sni } : {}),
+    ...(tlsMeta.pinSHA256 ? { pinSHA256: tlsMeta.pinSHA256 } : {}),
   };
 }
 

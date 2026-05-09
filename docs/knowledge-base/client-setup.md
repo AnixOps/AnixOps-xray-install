@@ -72,7 +72,7 @@ vless://UUID@IP:443?encryption=none&security=reality&type=grpc&serviceName=随�
 ### Hysteria2
 
 ```
-hysteria2://user:密码@随机子域名.pblaze.com:20000-50000/?insecure=1&obfs=salamander&obfs-password=混淆密码#AnixOps
+hysteria2://密码@随机子域名.pblaze.com:20000-50000/?insecure=1&sni=随机子域名.pblaze.com&pinSHA256=证书指纹&obfs=salamander&obfs-password=混淆密码#AnixOps
 ```
 
 ## 常见问题

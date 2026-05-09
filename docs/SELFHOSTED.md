@@ -84,6 +84,16 @@ NOTIFICATION_WEBHOOK_URL=https://api.telegram.org/bot.../sendMessage
 - Cloudflare 的 `CLOUDFLARE_TOKEN` 和 `CLOUDFLARE_ZONE_ID` 放在 `.local-secrets.env` 即可，部署时会自动合并进远端环境并写入 DNS 记录
 - 主站域名继续使用 `anixops.com`，代理链路则固定在 `pblaze.com` 这条单独域名线上
 
+### Hysteria2 维护说明
+
+Hysteria2 的端口跳跃实现以官方文档为准：
+
+- 服务端 range 端口按 `listen: :20000-50000` 这种形式配置，不要拆成多个离散端口
+- range 模式下脚本会优先检测 `nftables` / `iptables`，并跳过 `ufw/firewalld`，避免再次出现 `ERROR: Bad port`
+- 每单随机子域名只用于代理链路，主站仍然保留在 `anixops.com`
+- 客户端订阅会把 `ports` / `hop-interval` 和 `server_ports` / `hop_interval` 一并带上
+- 如果后续再排查 Hysteria2 失败，优先看 `scripts/hysteria2.sh` 是否把 range 传给了防火墙命令，或远端机器是否缺少 `nft` / `iptables`
+
 如果你准备继续完成“真实链上充值”或“真实链上审计锚定”，先看：
 
 - [manual-input-checklist.md](/root/code/AnixOps-xray-install/docs/manual-input-checklist.md)

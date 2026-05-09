@@ -113,6 +113,16 @@ function generateHysteria2Domain() {
   return `${randomBytes(6).toString("hex")}.${getHysteria2ProxyDomain()}`;
 }
 
+function parseHysteria2InstallOutput(output: string) {
+  const sniMatch = output.match(/^HY2_SNI=(.+)$/m);
+  const pinMatch = output.match(/^HY2_PIN_SHA256=(.+)$/m);
+
+  return {
+    sni: sniMatch?.[1]?.trim() || "",
+    pinSHA256: pinMatch?.[1]?.trim().toLowerCase() || "",
+  };
+}
+
 function getCloudflareDnsConfig() {
   const token = firstNonEmpty(
     process.env.CLOUDFLARE_TOKEN,
@@ -759,12 +769,13 @@ async function deployProtocol(
     await ssh.execCommand(`cat > ${tmpScript} << 'SCRIPT'\n${script}\nSCRIPT`);
     await ssh.execCommand(`chmod +x ${tmpScript}`);
 
-    await ssh.execCommand(
+    const result = await ssh.execCommand(
       `${tmpScript} --port ${port} --password ${password} --obfs ${obfs}${domain ? ` --domain ${domain} --email auto@anixops.com` : ""}`
     );
 
     await ssh.execCommand(`rm -f ${tmpScript}`);
     ssh.dispose();
+    const tlsMeta = parseHysteria2InstallOutput(result.stdout || "");
 
     return {
       protocol: "hysteria2",
@@ -773,6 +784,8 @@ async function deployProtocol(
       password,
       obfs,
       insecure: "true",
+      ...(tlsMeta.sni ? { sni: tlsMeta.sni } : {}),
+      ...(tlsMeta.pinSHA256 ? { pinSHA256: tlsMeta.pinSHA256 } : {}),
       ...(domain && { domain }),
     };
   }
@@ -839,12 +852,13 @@ async function deployProtocolWithPassword(
     await ssh.execCommand(`cat > ${tmpScript} << 'SCRIPT'\n${script}\nSCRIPT`);
     await ssh.execCommand(`chmod +x ${tmpScript}`);
 
-    await ssh.execCommand(
+    const result = await ssh.execCommand(
       `${tmpScript} --port ${hyPort} --password ${password} --obfs ${obfs}${domain ? ` --domain ${domain} --email auto@anixops.com` : ""}`
     );
 
     await ssh.execCommand(`rm -f ${tmpScript}`);
     ssh.dispose();
+    const tlsMeta = parseHysteria2InstallOutput(result.stdout || "");
 
     return {
       protocol: "hysteria2",
@@ -853,6 +867,8 @@ async function deployProtocolWithPassword(
       password,
       obfs,
       insecure: "true",
+      ...(tlsMeta.sni ? { sni: tlsMeta.sni } : {}),
+      ...(tlsMeta.pinSHA256 ? { pinSHA256: tlsMeta.pinSHA256 } : {}),
       ...(domain && { domain }),
     };
   }

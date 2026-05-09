@@ -41,6 +41,8 @@ export type NormalizedHysteria2Config = {
   password: string;
   obfs?: string;
   domain?: string;
+  sni?: string;
+  pinSHA256?: string;
   insecure: boolean;
 };
 
@@ -188,6 +190,23 @@ function normalizeBoolean(value: unknown, fallback = true) {
   return fallback;
 }
 
+function normalizePinSHA256(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const stripped = normalized
+    .replace(/^sha256\//, "")
+    .replace(/[:-]/g, "");
+
+  return /^[0-9a-f]{64}$/.test(stripped) ? stripped : null;
+}
+
 function normalizeSubscriptionCandidate(value: string) {
   return value.trim();
 }
@@ -200,7 +219,7 @@ export function isValidSubscriptionUri(value: string) {
   if (candidate.includes("undefined")) {
     return false;
   }
-  return /^(vless|hysteria2):\/\/\S+$/i.test(candidate);
+  return /^(vless|hysteria2|hy2):\/\/\S+$/i.test(candidate);
 }
 
 export function normalizeSubscriptionValue(value: string | null | undefined, format: SubscriptionFormat = "universal") {
@@ -275,6 +294,8 @@ export function normalizeRentalConfig(rawConfig: unknown): RentalConfigValidatio
 
     const obfs = normalizeString((rawConfig as Record<string, unknown>).obfs) || undefined;
     const domain = normalizeString((rawConfig as Record<string, unknown>).domain) || undefined;
+    const sni = normalizeString((rawConfig as Record<string, unknown>).sni) || domain || undefined;
+    const pinSHA256 = normalizePinSHA256((rawConfig as Record<string, unknown>).pinSHA256) || undefined;
 
     return {
       ok: true,
@@ -286,6 +307,8 @@ export function normalizeRentalConfig(rawConfig: unknown): RentalConfigValidatio
         insecure: normalizeBoolean((rawConfig as Record<string, unknown>).insecure, true),
         ...(obfs ? { obfs } : {}),
         ...(domain ? { domain } : {}),
+        ...(sni ? { sni } : {}),
+        ...(pinSHA256 ? { pinSHA256 } : {}),
       },
     };
   }
@@ -394,10 +417,14 @@ export function generateHysteria2Config(params: {
   password: string;
   obfs?: string;
   domain?: string;
+  sni?: string;
+  pinSHA256?: string;
   insecure?: boolean;
 }) {
-  const { ip, port, password, obfs, domain, insecure = true } = params;
+  const { ip, port, password, obfs, domain, sni, pinSHA256, insecure = true } = params;
   const host = domain?.trim() || ip;
+  const tlsServerName = sni?.trim() || domain?.trim() || "";
+  const tlsPinSHA256 = normalizePinSHA256(pinSHA256);
   const portSpec = formatHysteria2PortSpec(port);
   const portHopping = hasHysteria2PortHopping(port);
   const primaryPort = getHysteria2PrimaryPort(port);
@@ -406,15 +433,23 @@ export function generateHysteria2Config(params: {
   const uriParams = new URLSearchParams({
     insecure: insecure ? "1" : "0",
   });
+  if (tlsServerName) {
+    uriParams.set("sni", tlsServerName);
+  }
+  if (tlsPinSHA256) {
+    uriParams.set("pinSHA256", tlsPinSHA256);
+  }
   if (obfs) {
     uriParams.set("obfs", "salamander");
     uriParams.set("obfs-password", obfs);
   }
 
-  const uri = `hysteria2://user:${encodeURIComponent(password)}@${host}:${portSpec}/?${uriParams.toString()}#AnixOps`;
+  const uri = `hysteria2://${encodeURIComponent(password)}@${host}:${portSpec}/?${uriParams.toString()}#AnixOps`;
   const clashHopBlock = portHopping
     ? `    ports: ${portSpec}\n    hop-interval: 30\n`
     : "";
+  const clashSniBlock = tlsServerName ? `    sni: ${tlsServerName}\n` : "";
+  const clashPinBlock = tlsPinSHA256 ? `    pinSHA256: ${tlsPinSHA256}\n` : "";
 
   return {
     clashMeta: `proxies:
@@ -424,8 +459,7 @@ export function generateHysteria2Config(params: {
     port: ${primaryPort}
 ${clashHopBlock}    password: "${password}"
     udp: true
-    sni: ${host}
-    skip-cert-verify: ${insecure}${obfs ? `
+${clashSniBlock}${clashPinBlock}    skip-cert-verify: ${insecure}${obfs ? `
     obfs: salamander
     obfs-password: "${obfs}"` : ""}`,
 
@@ -443,7 +477,7 @@ ${clashHopBlock}    password: "${password}"
         tls: {
           enabled: true,
           insecure,
-          server_name: host,
+          ...(tlsServerName ? { server_name: tlsServerName } : {}),
         },
         ...(obfs ? { obfs: { type: "salamander", password: obfs } } : {}),
       }],

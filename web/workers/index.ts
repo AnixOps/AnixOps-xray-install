@@ -115,6 +115,9 @@ type NormalizedProvisionedConfig =
     password: string;
     insecure: boolean;
     obfs?: string;
+    domain?: string;
+    sni?: string;
+    pinSHA256?: string;
   };
 
 function normalizeProvisionConfigString(value: unknown) {
@@ -189,6 +192,20 @@ function normalizeProvisionConfigBoolean(value: unknown, fallback = true) {
   return fallback;
 }
 
+function normalizeProvisionPinSHA256(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const stripped = normalized.replace(/^sha256\//, "").replace(/[:-]/g, "");
+  return /^[0-9a-f]{64}$/.test(stripped) ? stripped : null;
+}
+
 function normalizeProvisionedConfig(rawConfig: unknown): { ok: true; config: NormalizedProvisionedConfig } | { ok: false; error: string } {
   if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
     return { ok: false, error: "Deployment is not ready yet." };
@@ -235,6 +252,9 @@ function normalizeProvisionedConfig(rawConfig: unknown): { ok: true; config: Nor
     }
 
     const obfs = normalizeProvisionConfigString(record.obfs) || undefined;
+    const domain = normalizeProvisionConfigString(record.domain) || undefined;
+    const sni = normalizeProvisionConfigString(record.sni) || domain || undefined;
+    const pinSHA256 = normalizeProvisionPinSHA256(record.pinSHA256) || undefined;
     return {
       ok: true,
       config: {
@@ -244,6 +264,9 @@ function normalizeProvisionedConfig(rawConfig: unknown): { ok: true; config: Nor
         password,
         insecure: normalizeProvisionConfigBoolean(record.insecure, true),
         ...(obfs ? { obfs } : {}),
+        ...(domain ? { domain } : {}),
+        ...(sni ? { sni } : {}),
+        ...(pinSHA256 ? { pinSHA256 } : {}),
       },
     };
   }

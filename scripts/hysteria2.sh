@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hysteria2 Server Installation Script (Non-interactive)
 # Official docs: https://v2.hysteria.network/docs/
-# Usage: ./hysteria2.sh --port 443|20000-50000 --password PASSWORD [--cert CERT] [--key KEY] [--obfs OBFS_PASSWORD]
+# Usage: ./hysteria2.sh --port 443|20000-50000 --password PASSWORD [--cert CERT] [--key KEY] [--obfs OBFS_PASSWORD] [--domain DOMAIN]
 
 set -euo pipefail
 
@@ -157,6 +157,16 @@ generate_self_signed_cert() {
   CERT="${CONFIG_DIR}/server.crt"
   KEY="${CONFIG_DIR}/server.key"
   log_info "Self-signed cert generated (client needs to set insecure: true or pin SHA256)"
+}
+
+get_cert_sha256() {
+  if [[ ! -f "$CERT" ]]; then
+    return 1
+  fi
+
+  openssl x509 -in "$CERT" -noout -fingerprint -sha256 \
+    | sed -E 's/^.*=//; s/://g' \
+    | tr '[:upper:]' '[:lower:]'
 }
 
 # Create systemd service
@@ -375,13 +385,23 @@ main() {
   echo " 端口: ${PORT}"
   echo " 密码: ${PASSWORD}"
   echo " 证书: ${CERT}"
+  HY2_SNI="${DOMAIN:-example.com}"
+  HY2_PIN_SHA256="$(get_cert_sha256 || true)"
   if [[ -n "$OBFS" ]]; then
     echo " 混淆: ${OBFS}"
   fi
   echo "=========================================="
   echo ""
   echo " 客户端连接:"
-  echo "  hysteria2://user:${PASSWORD}@<SERVER_IP>:${PORT}/?insecure=1"
+  if [[ -n "$HY2_PIN_SHA256" ]]; then
+    echo "  hysteria2://${PASSWORD}@<SERVER_IP>:${PORT}/?insecure=1&sni=${HY2_SNI}&pinSHA256=${HY2_PIN_SHA256}${OBFS:+&obfs=salamander&obfs-password=${OBFS}}#AnixOps"
+  else
+    echo "  hysteria2://${PASSWORD}@<SERVER_IP>:${PORT}/?insecure=1&sni=${HY2_SNI}${OBFS:+&obfs=salamander&obfs-password=${OBFS}}#AnixOps"
+  fi
+  echo " HY2_SNI=${HY2_SNI}"
+  if [[ -n "$HY2_PIN_SHA256" ]]; then
+    echo " HY2_PIN_SHA256=${HY2_PIN_SHA256}"
+  fi
   echo "=========================================="
 }
 

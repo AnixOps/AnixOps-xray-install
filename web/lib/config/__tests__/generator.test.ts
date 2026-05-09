@@ -119,6 +119,7 @@ describe("Hysteria2 config generator", () => {
     expect(config.clashMeta).toContain("hy2password");
     expect(config.singbox).toContain("hy2password");
     expect(config.v2rayN).toMatch(/^hysteria2:\/\//);
+    expect(config.v2rayN).not.toContain("user:");
   });
 
   it("generates valid Singbox JSON with obfs", () => {
@@ -164,10 +165,29 @@ describe("Hysteria2 config generator", () => {
     expect(config.clashMeta).toContain("server: random.pblaze.com");
     expect(config.clashMeta).toContain("sni: random.pblaze.com");
     expect(config.v2rayN).toContain("@random.pblaze.com:443/");
+    expect(config.v2rayN).toContain("sni=random.pblaze.com");
 
     const parsed = JSON.parse(config.singbox);
     expect(parsed.outbounds[0].server).toBe("random.pblaze.com");
     expect(parsed.outbounds[0].tls.server_name).toBe("random.pblaze.com");
+  });
+
+  it("includes pinSHA256 in the Hysteria2 URI when provided", () => {
+    const pinSHA256 = "sha256/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const config = generateHysteria2Config({
+      ip: "5.6.7.8",
+      port: 443,
+      password: "pass123",
+      domain: "random.pblaze.com",
+      sni: "proxy.pblaze.com",
+      pinSHA256,
+      insecure: false,
+    });
+
+    expect(config.v2rayN).toContain("sni=proxy.pblaze.com");
+    expect(config.v2rayN).toContain("pinSHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    const parsed = JSON.parse(config.singbox);
+    expect(parsed.outbounds[0].tls.server_name).toBe("proxy.pblaze.com");
   });
 
   it("adds port hopping fields when the port is a range", () => {
@@ -374,7 +394,7 @@ describe("config generator edge cases", () => {
   });
 
   it("rejects universal subscriptions that decode to undefined fields", () => {
-    const broken = encodeBase64Text("hysteria2://user:undefined@undefined:undefined/?insecure=1#AnixOps\n");
+    const broken = encodeBase64Text("hysteria2://undefined@undefined:undefined/?insecure=1#AnixOps\n");
     expect(isValidUniversalSubscription(broken)).toBe(false);
     expect(normalizeSubscriptionValue(broken, "universal")).toBeNull();
   });
@@ -387,7 +407,7 @@ describe("config generator edge cases", () => {
   });
 
   it("accepts valid raw subscription URIs", () => {
-    const raw = "hysteria2://user:strong-password@1.2.3.4:443/?insecure=1#AnixOps";
+    const raw = "hysteria2://strong-password@1.2.3.4:443/?insecure=1&sni=example.com#AnixOps";
     expect(isValidSubscriptionUri(raw)).toBe(true);
     expect(normalizeSubscriptionValue(raw, "raw")).toBe(raw);
   });
