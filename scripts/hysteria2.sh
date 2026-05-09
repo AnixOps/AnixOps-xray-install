@@ -57,7 +57,7 @@ normalize_port_spec() {
     PORT_IS_RANGE=true
     PORT_START="$start"
     PORT_END="$end"
-    printf '%s-%s' "$start" "$end"
+    PORT="${start}-${end}"
     return 0
   fi
 
@@ -65,7 +65,7 @@ normalize_port_spec() {
     PORT_IS_RANGE=false
     PORT_START="$raw"
     PORT_END="$raw"
-    printf '%s' "$raw"
+    PORT="$raw"
     return 0
   fi
 
@@ -88,7 +88,7 @@ detect_firewall_backend() {
 
 # Validate inputs
 PORT_INPUT="$PORT"
-if ! PORT="$(normalize_port_spec "$PORT_INPUT")"; then
+if ! normalize_port_spec "$PORT_INPUT"; then
   log_error "Invalid port: $PORT_INPUT"
   exit 1
 fi
