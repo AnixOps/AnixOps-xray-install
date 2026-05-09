@@ -35,6 +35,8 @@
 3. 充值、扣费、退款和审计锚定都有可追踪流水。
 4. 远端部署、健康检查、回滚和审计恢复流程可重复执行。
 
+前端升级目标：在不改变认证、钱包、充值、租用、兑换码、审计和管理端业务语义的前提下，把公开页、用户控制台、管理后台、租用流程和自托管流程统一到 Apple-grade 的简洁体验。这里的 Apple-grade 不是复制 Apple 品牌，而是要求达到同等级的清晰层级、精确间距、克制动效、完整状态、键盘可用性、移动端无溢出和可维护组件系统。
+
 ## 事实来源
 
 以下文档是当前状态的主要来源，优先于旧印象和过期说明：
@@ -82,6 +84,8 @@
 | 正式版首发充值 | 只保留 `CDK` 兑换码通道，`Stripe` 未申请前不作为生产可见入口；`CDK` 分 `wallet` 余额直充型和 `duration` 单次型 |
 | 正式版发布方式 | 用 tag 发布正式版快照，不单独长期维护 `production` 分支 |
 | Worker API | `web/workers/index.ts` 仍存在，改动核心 API 时要决定是否同步或废弃 |
+| 前端体验目标 | 追求 Apple-grade polish：极简、易扫读、动作少但精准、错误和等待状态明确、移动端和桌面端都稳定；不要做 Apple 品牌仿站 |
+| 前端质量门槛 | UI 改动必须覆盖 `hover`、`focus`、`active`、`loading`、`empty`、`error`、`disabled` 状态，并检查 `360px`、`390px`、`430px` 和桌面宽度 |
 
 ## 当前仍待推进
 
@@ -94,6 +98,7 @@
 | P2 | 合规统计展示 | 管理端和控制台已展示 profile、blocked protocol、reject stats 和 sync coverage | 仍可继续补导出、告警和更细的用户端统计 |
 | P2 | 合规产品边界 | 明确合规模式是正式产品线还是安全增强 profile | 文档和 UI 口径一致 |
 | P2 | Worker API 去留 | 决定 `web/workers/index.ts` 是继续维护还是废弃 | 若保留，核心 API 改动必须同步；若废弃，移除部署入口 |
+| P2 | 前端 Apple-grade polish pass | 前端主线继续使用 `shadcn/ui + Radix UI + TanStack Table + lucide-react + sonner`，统一公开页、控制台、管理后台、租用和自托管体验 | 详见 `docs/frontend-redesign-plan.md`；通过 lint/test/build，完成关键视口和状态自查，业务 API 语义不变 |
 
 ## 当前推荐实施顺序
 

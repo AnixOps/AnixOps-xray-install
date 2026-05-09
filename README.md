@@ -42,6 +42,15 @@ DigitalOcean and AWS adapters remain supported and can be switched on without ch
 - **Provision Server**: Fastify + node-ssh (independent VPS)
 - **Payments**: Stripe Checkout + webhook verification
 
+## Frontend Direction
+
+The frontend redesign is moving toward an Apple-grade, operational UI system built from local `shadcn/ui`-style components, Radix UI primitives, TanStack Table, lucide-react, and Sonner.
+
+Key planning docs:
+
+- [AGENT.md](AGENT.md)
+- [docs/frontend-redesign-plan.md](docs/frontend-redesign-plan.md)
+
 ## Quick Start
 
 ### Local Development

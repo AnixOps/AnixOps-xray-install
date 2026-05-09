@@ -10,6 +10,33 @@ When an AI Agent works on frontend redesign, UI components, console layout, admi
 
 The redesign is a controlled migration of the existing product UI. It is not a rewrite of backend APIs, wallet logic, rental logic, provider logic, or authentication.
 
+The target is an Apple-grade experience: restrained, precise, legible, and calm. That means strong hierarchy, consistent spacing, high-quality motion, complete states, and interaction polish on both desktop and mobile. It does not mean copying Apple branding, visuals, or marketing layout.
+
+## Library Baseline
+
+As of 2026-05-09, the preferred stack is still:
+
+- `shadcn/ui`-style project-owned components copied into `web/components/ui`
+- `Radix UI` primitives for accessible interaction building blocks
+- `TanStack Table` for dense operational tables
+- `lucide-react` for icons
+- `sonner` for toast and status feedback
+
+Primary references:
+
+- `shadcn/ui` docs: https://ui.shadcn.com/docs
+- `Radix UI` primitives: https://www.radix-ui.com/primitives
+- `TanStack Table` docs: https://tanstack.com/table/latest
+- `lucide-react` site: https://lucide.dev
+
+Why this remains the right choice:
+
+- The project already owns a local UI layer, so copying shadcn-style source keeps the codebase adaptable instead of locking it to a branded UI package.
+- Radix covers the hard accessibility and focus-management problems without forcing a visual identity.
+- TanStack Table fits the admin and console workflows better than a generic data grid because the product needs dense, customizable operational tables.
+- Lucide keeps button and status icons visually consistent.
+- Sonner gives lightweight, modern toast feedback without introducing another visual language.
+
 ## Current Rollout
 
 The following surfaces have already been moved onto the new layout and component language:
@@ -71,6 +98,12 @@ This is the preferred stack for the frontend redesign:
 | `lucide-react` | Consistent icon set for buttons, navigation, statuses, and compact controls |
 | `sonner` | Toast and status feedback replacement for the current custom toast layer |
 
+Implementation note:
+
+- `shadcn/ui` means copied source and local ownership, not a third-party black box.
+- The local `web/components/ui` layer stays the API surface that most pages import from.
+- Do not introduce a second global UI kit during the redesign.
+
 ## Why This Stack
 
 - The current frontend is `Next.js 15 + React 19 + Tailwind CSS 3`, with a thin local UI layer in `web/components/ui`.
@@ -78,6 +111,7 @@ This is the preferred stack for the frontend redesign:
 - The project needs a controlled design system, not a full visual reset into Ant Design, Material UI, or another strongly branded component suite.
 - `shadcn/ui` keeps component code inside the repository, so components can be adapted to the existing AnixOps UI language and changed gradually.
 - `Radix UI` and `TanStack Table` cover the hard interaction and data-grid behavior without forcing a visual style.
+- This stack also leaves enough room to reach the requested Apple-like polish without turning the UI into a generic enterprise dashboard.
 
 ## Agent Workflow
 
@@ -129,6 +163,7 @@ npm install @radix-ui/react-dialog @radix-ui/react-dropdown-menu @radix-ui/react
 | 5 | Console and wallet redesign | `web/components/console/ConsoleHub.tsx` and extracted console components | Wallet, nodes, audit, referral, and chain mode views are readable, dense, and consistent |
 | 6 | Rental and self-hosted flows | `web/components/rental/*`, `web/components/self-hosted/*` | Step flows use the same form, status, summary, and action components |
 | 7 | Visual token refinement | `web/app/globals.css`, `tailwind.config.js` | Tokens, radius, shadows, surfaces, and state colors are consistent across public, console, admin, rental, and self-hosted surfaces |
+| 8 | Apple-grade polish and QA | All migrated surfaces | Visual rhythm, motion, accessibility, and responsive behavior are checked against the quality bar before a phase is marked done |
 
 ## Detailed Migration Order
 
@@ -145,9 +180,26 @@ npm install @radix-ui/react-dialog @radix-ui/react-dropdown-menu @radix-ui/react
 
 - Prefer dense, calm, operational UI over marketing-page composition.
 - Keep information scanning easy: clear hierarchy, compact metrics, stable tables, predictable action placement.
+- Use one primary action per surface whenever possible.
 - Avoid large decorative cards inside cards, excessive glass effects, and oversized rounded panels in admin workflows.
 - Use icons for compact controls where the action is conventional.
 - Keep the public homepage, wallet console, admin dashboard, rental flow, and self-hosted flow visually related but not identical.
+- Use a restrained palette with neutral surfaces and a limited number of functional accent colors.
+- Favor subtle motion and state changes over ornamental animation.
+- Keep copy terse and task-oriented; the interface should explain itself through structure and controls first.
+
+## Visual Targets
+
+| Area | Target |
+|---|---|
+| Typography | System-first, high legibility, clear hierarchy, no decorative typefaces |
+| Layout | Stable spacing rhythm, responsive grids, no collapsing or overlapping content at mobile widths |
+| Surfaces | Small-radius controls and cards, minimal visual noise, no floating-card stacks for whole page sections |
+| Motion | Short, easing-based transitions; support reduced-motion preferences |
+| States | Every actionable surface shows clear hover, focus, active, loading, empty, error, success, and disabled states |
+| Tables | Dense but readable, with sorting, filtering, pagination, and row actions where useful |
+| Icons | Lucide icons for conventional controls, status chips, and compact affordances |
+| Accessibility | Keyboard navigation and visible focus are mandatory, not optional |
 
 ## Page Priorities
 
@@ -173,6 +225,9 @@ Every implementation phase should meet these checks before commit:
 - Mobile layouts do not overflow at common widths around `360px`, `390px`, and `430px`.
 - Existing wallet, rental, payment, redeem code, and admin actions keep their current API payloads unless intentionally changed.
 - Visual changes do not hide error, pending, expired, short-paid, completed, or disabled states.
+- Review screenshots on at least one compact mobile viewport and one desktop viewport for every surface touched.
+- Confirm text does not clip, overlap, or escape its container at the common widths above.
+- Confirm motion respects reduced-motion settings and does not depend on hover alone.
 
 ## Risk Controls
 
@@ -184,6 +239,7 @@ Every implementation phase should meet these checks before commit:
 | Toast migration breaks existing call sites | Keep a compatibility wrapper around the current `useToast` API until all callers are migrated |
 | Large file extraction changes behavior accidentally | Extract render-only sections first, then move state after tests or manual checks exist |
 | Visual polish delays operational fixes | Prioritize console/admin readability and workflow reliability over decorative redesign |
+| Apple-like visuals drift into generic marketing fluff | Keep the system operational, terse, and state-driven; do not turn the app into a hero-page showcase unless explicitly requested |
 
 ## Rollback Strategy
 
@@ -207,3 +263,4 @@ Every implementation phase should meet these checks before commit:
 - Do not migrate the whole product to Ant Design, Material UI, Mantine, or HeroUI unless the product direction changes explicitly.
 - Do not rewrite backend API contracts as part of visual migration unless the frontend task requires it.
 - Do not redesign every page in one change. Migrate page by page and keep each patch reviewable.
+- Do not promise perfection by wording alone; every surface must still pass the acceptance criteria above.

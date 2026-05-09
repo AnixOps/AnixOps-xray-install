@@ -12,7 +12,7 @@ export default function NotFound() {
     <div className="apple-shell flex min-h-[70vh] items-center justify-center px-4">
       <Card className="animate-rise max-w-2xl space-y-5 p-8 text-center">
         <div className="section-eyebrow">Not found</div>
-        <h2 className="text-6xl font-semibold tracking-[-0.065em]">{t("notFound.title")}</h2>
+        <h2 className="text-6xl font-semibold">{t("notFound.title")}</h2>
         <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">
           {t("notFound.desc")}
         </p>

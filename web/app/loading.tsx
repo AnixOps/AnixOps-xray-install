@@ -14,7 +14,7 @@ export default function Loading() {
           AX
         </div>
         <div className="section-eyebrow">Loading</div>
-        <h2 className="text-3xl font-semibold tracking-[-0.045em]">
+        <h2 className="text-3xl font-semibold">
           {isZh ? "正在准备当前视图。" : "Preparing the current view."}
         </h2>
         <p className="text-sm leading-7 text-muted-foreground">{t("rental.loadingConfig")}</p>

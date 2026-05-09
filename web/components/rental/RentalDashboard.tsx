@@ -275,7 +275,7 @@ export function RentalDashboard({
           <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-xl font-semibold text-muted-foreground">
             AX
           </div>
-          <div className="text-2xl font-semibold tracking-[-0.035em] text-muted-foreground">
+          <div className="text-2xl font-semibold text-muted-foreground">
             {t("status.destroyed")}
           </div>
           <div className="mt-2 text-sm text-muted-foreground">{t("privacy.desc2")}</div>
@@ -294,7 +294,7 @@ export function RentalDashboard({
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <div className="section-eyebrow text-white/50">{isZh ? "Active rental" : "Active rental"}</div>
-                  <h2 className="mt-3 text-3xl font-semibold tracking-[-0.05em] md:text-4xl">
+                  <h2 className="mt-3 text-3xl font-semibold md:text-4xl">
                     {rental.protocol === "vless-reality" ? t("protocol.vless") : t("protocol.hysteria2")}
                   </h2>
                   <p className="mt-3 max-w-2xl text-sm leading-7 text-white/72">
@@ -317,7 +317,7 @@ export function RentalDashboard({
 
               <div className="rounded-[1.9rem] border border-white/12 bg-white/10 p-5 backdrop-blur-xl">
                 <div className="text-xs uppercase tracking-[0.24em] text-white/45">{t("status.remaining")}</div>
-                <div className="mt-3 font-mono text-6xl font-semibold tracking-[-0.075em] tabular-nums md:text-7xl">
+                <div className="mt-3 font-mono text-6xl font-semibold tabular-nums md:text-7xl">
                   {String(hours).padStart(2, "0")}:{String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
                 </div>
                 <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-white/10">
@@ -344,7 +344,7 @@ export function RentalDashboard({
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="section-eyebrow">{t("status.config")}</div>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+                  <h2 className="mt-2 text-2xl font-semibold">
                     {isZh ? "客户端导出" : "Client exports"}
                   </h2>
                 </div>
@@ -458,7 +458,7 @@ export function RentalDashboard({
           <Card className="space-y-5 p-5">
             <div>
               <div className="section-eyebrow">{isZh ? "Session snapshot" : "Session snapshot"}</div>
-              <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+              <h3 className="mt-2 text-xl font-semibold">
                 {isZh ? "运行状态一览" : "Everything important at a glance"}
               </h3>
             </div>
@@ -473,7 +473,7 @@ export function RentalDashboard({
           <Card className="space-y-4 p-5">
             <div>
               <div className="section-eyebrow">{isZh ? "Controls" : "Controls"}</div>
-              <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+              <h3 className="mt-2 text-xl font-semibold">
                 {isZh ? "直接操作当前节点" : "Operate the current node directly"}
               </h3>
             </div>
@@ -528,7 +528,7 @@ export function RentalDashboard({
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <div className="section-eyebrow">{t("rental.renew")}</div>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+              <h2 className="mt-2 text-2xl font-semibold">
                 {t("rental.renew.selectDuration")}
               </h2>
             </div>
@@ -544,7 +544,7 @@ export function RentalDashboard({
                 onClick={() => setRenewPlan(plan)}
                 className={`choice-card min-h-[150px] text-center ${renewPlan?.id === plan.id ? "choice-card-active" : ""}`}
               >
-                <div className="text-lg font-semibold tracking-[-0.025em]">{tPlan(plan.id)}</div>
+                <div className="text-lg font-semibold">{tPlan(plan.id)}</div>
                 <div className="mt-3 text-2xl font-semibold text-primary">${plan.totalPrice.toFixed(2)}</div>
                 <div className="mt-2 text-xs text-muted-foreground">${plan.pricePerHour}/{t("time.hour")}</div>
               </button>
@@ -604,7 +604,7 @@ function ActionButton({
       }`}
     >
       <div className="space-y-2">
-        <div className={`text-base font-semibold tracking-[-0.02em] ${destructive ? "text-red-600" : ""}`}>
+        <div className={`text-base font-semibold ${destructive ? "text-red-600" : ""}`}>
           {title}
         </div>
         <div className={`text-sm leading-6 ${destructive ? "text-red-500/90" : "text-muted-foreground"}`}>

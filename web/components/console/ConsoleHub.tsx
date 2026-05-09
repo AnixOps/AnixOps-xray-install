@@ -476,7 +476,7 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
               </Badge>
               <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Workspace</span>
             </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-[-0.04em]">{activeConfig.title}</h1>
+            <h1 className="mt-3 text-2xl font-semibold">{activeConfig.title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">Account data is loaded from the self-hosted API.</p>
           </div>
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -840,7 +840,7 @@ function WalletTopupPanel({
           <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
             {isZh ? "余额充值" : "Wallet topup"}
           </div>
-          <div className="mt-1 text-lg font-semibold tracking-[-0.03em]">
+          <div className="mt-1 text-lg font-semibold">
             {isZh ? "为站内余额充值" : "Add funds to your wallet"}
           </div>
           <div className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -894,7 +894,7 @@ function WalletTopupPanel({
                   } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="font-semibold tracking-[-0.02em]">
+                    <div className="font-semibold">
                       {formatTopupRailLabel(item.rail, isZh)}
                     </div>
                     <Badge variant={active ? "default" : "outline"} className="rounded-full px-2 py-0.5 text-[10px]">
@@ -950,7 +950,7 @@ function WalletTopupPanel({
               <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
                 {isZh ? "标准充值单" : "Standard topup order"}
               </div>
-              <div className="mt-1 text-lg font-semibold tracking-[-0.02em]">
+              <div className="mt-1 text-lg font-semibold">
                 {isZh ? "按以下步骤完成转账" : "Complete the transfer in order"}
               </div>
             </div>
@@ -990,7 +990,7 @@ function WalletTopupPanel({
                   <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-950 text-xs font-semibold text-white">
                     {item.step}
                   </div>
-                  <div className="font-medium tracking-[-0.02em]">{item.title}</div>
+                  <div className="font-medium">{item.title}</div>
                 </div>
                 <p className="mt-2 text-xs leading-6 text-muted-foreground">{item.body}</p>
               </div>
@@ -1002,7 +1002,7 @@ function WalletTopupPanel({
               <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
                 {isZh ? "精确到账金额" : "Exact amount"}
               </div>
-              <div className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+              <div className="mt-2 text-2xl font-semibold">
                 {createdTopupExpectedAmount} {createdTopup.asset}
               </div>
               <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
@@ -1017,7 +1017,7 @@ function WalletTopupPanel({
               <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
                 {isZh ? "状态" : "Status"}
               </div>
-              <div className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+              <div className="mt-2 text-2xl font-semibold">
                 {getCryptoTopupStatusLabel(createdTopup.status, isZh)}
               </div>
               <p className="mt-2 text-xs leading-6 text-muted-foreground">
@@ -1416,7 +1416,7 @@ function WalletCdkRedeemPanel({ onReload }: { onReload?: () => Promise<void> | v
           <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
             {isZh ? "CDK 余额直充型" : "CDK wallet credit"}
           </div>
-          <div className="mt-1 text-lg font-semibold tracking-[-0.03em]">
+          <div className="mt-1 text-lg font-semibold">
             {isZh ? "输入余额型 CDK 直接入账到钱包" : "Redeem a balance CDK directly into the wallet"}
           </div>
           <div className="mt-1 text-sm leading-6 text-muted-foreground">

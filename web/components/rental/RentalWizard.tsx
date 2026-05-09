@@ -225,7 +225,7 @@ export function RentalWizard() {
                     <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                       {index + 1}
                     </div>
-                    <div className="mt-2 text-sm font-semibold tracking-[-0.02em]">{item.title}</div>
+                    <div className="mt-2 text-sm font-semibold">{item.title}</div>
                     <div className="mt-1 text-sm leading-6 text-muted-foreground">{item.body}</div>
                   </div>
                 ))}
@@ -250,7 +250,7 @@ export function RentalWizard() {
                         {item.code}
                       </div>
                       <div>
-                        <div className="text-xl font-semibold tracking-[-0.035em]">
+                        <div className="text-xl font-semibold">
                           {t(PROTOCOL_INFO[item.key].nameKey)}
                         </div>
                         <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -347,8 +347,8 @@ export function RentalWizard() {
                     onClick={() => setRentalPlan(plan)}
                     className={`choice-card min-h-[150px] p-4 text-center ${active ? "choice-card-active" : ""}`}
                   >
-                    <div className="text-lg font-semibold tracking-[-0.03em]">{tPlan(plan.id)}</div>
-                    <div className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-primary">
+                    <div className="text-lg font-semibold">{tPlan(plan.id)}</div>
+                    <div className="mt-3 text-3xl font-semibold text-primary">
                       ${plan.totalPrice.toFixed(2)}
                     </div>
                     <div className="mt-2 text-xs text-muted-foreground">
@@ -462,7 +462,7 @@ export function RentalWizard() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="text-base font-semibold tracking-[-0.02em]">{profile.name}</div>
+                          <div className="text-base font-semibold">{profile.name}</div>
                           <div className="mt-2 text-sm leading-6 text-muted-foreground">
                             {profile.mode} · {profile.version}
                           </div>
@@ -518,7 +518,7 @@ export function RentalWizard() {
 
           <section className="rounded-[1.75rem] border border-black/5 bg-white/72 p-5">
             <div className="mb-4 flex items-center justify-between">
-              <div className="text-sm font-semibold tracking-[-0.02em]">
+              <div className="text-sm font-semibold">
                 {isZh ? "最终确认" : "Final confirmation"}
               </div>
               <Badge variant="outline" className="px-3 py-1">
@@ -678,7 +678,7 @@ export function RentalWizard() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="section-eyebrow">{isZh ? "Provisioning" : "Provisioning"}</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">
+            <h2 className="mt-3 text-3xl font-semibold md:text-4xl">
               {t("rental.creatingNode")}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
@@ -710,7 +710,7 @@ export function RentalWizard() {
           !
         </div>
         <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t("rental.deployFailed")}</h2>
+          <h2 className="text-2xl font-semibold">{t("rental.deployFailed")}</h2>
           <p className="mt-3 text-sm leading-7 text-muted-foreground">{error}</p>
         </div>
         <Button
@@ -743,7 +743,7 @@ function PaymentMethodCard({
   return (
     <button onClick={onClick} className={`choice-card min-h-[138px] text-left ${active ? "choice-card-active" : ""}`}>
       <div className="space-y-3">
-        <div className="text-base font-semibold tracking-[-0.02em]">{title}</div>
+        <div className="text-base font-semibold">{title}</div>
         <div className="text-sm leading-6 text-muted-foreground">{body}</div>
       </div>
     </button>

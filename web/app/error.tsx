@@ -25,7 +25,7 @@ export default function Error({
           AX
         </div>
         <div className="section-eyebrow">Error</div>
-        <h2 className="text-3xl font-semibold tracking-[-0.045em] text-red-600">
+        <h2 className="text-3xl font-semibold text-red-600">
           {t("error.title")}
         </h2>
         <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">

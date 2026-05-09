@@ -165,7 +165,7 @@ export function SelfHostedWizard() {
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <div className="section-eyebrow">Deployment</div>
-              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">
+              <h2 className="mt-3 text-3xl font-semibold md:text-4xl">
                 {t("selfhosted.deploying")}
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
@@ -247,7 +247,7 @@ export function SelfHostedWizard() {
             <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div className="section-eyebrow">{isZh ? "Deployment complete" : "Deployment complete"}</div>
-                <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-green-700 md:text-4xl">
+                <h2 className="mt-3 text-3xl font-semibold text-green-700 md:text-4xl">
                   {t("selfhosted.success")}
                 </h2>
                 <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
@@ -294,7 +294,7 @@ export function SelfHostedWizard() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="section-eyebrow">{isZh ? "Configuration payload" : "Configuration payload"}</div>
-                <h3 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+                <h3 className="mt-2 text-2xl font-semibold">
                   {isZh ? "完整返回字段" : "Full returned fields"}
                 </h3>
               </div>
@@ -316,7 +316,7 @@ export function SelfHostedWizard() {
             <Card className="space-y-4 p-5">
               <div>
                 <div className="section-eyebrow">{isZh ? "Export" : "Export"}</div>
-                <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{localText.shareTitle}</h3>
+                <h3 className="mt-2 text-xl font-semibold">{localText.shareTitle}</h3>
               </div>
               <div className="code-block break-all">{generatedShareLink}</div>
               <div className="flex flex-col gap-2">
@@ -374,7 +374,7 @@ export function SelfHostedWizard() {
           !
         </div>
         <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em] text-red-600">
+          <h2 className="text-2xl font-semibold text-red-600">
             {t("selfhosted.failed")}
           </h2>
           <p className="mt-3 text-sm leading-7 text-muted-foreground">{error}</p>
@@ -443,7 +443,7 @@ export function SelfHostedWizard() {
                     API
                   </div>
                   <div>
-                    <div className="text-lg font-semibold tracking-[-0.025em]">
+                    <div className="text-lg font-semibold">
                       {t("selfhosted.method.api")}
                     </div>
                     <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -461,7 +461,7 @@ export function SelfHostedWizard() {
                     SSH
                   </div>
                   <div>
-                    <div className="text-lg font-semibold tracking-[-0.025em]">
+                    <div className="text-lg font-semibold">
                       {t("selfhosted.method.ssh")}
                     </div>
                     <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -485,7 +485,7 @@ export function SelfHostedWizard() {
                       className={`choice-card min-h-[120px] ${provider === item ? "choice-card-active" : ""}`}
                     >
                       <div className="text-left">
-                        <div className="text-base font-semibold tracking-[-0.02em]">
+                        <div className="text-base font-semibold">
                           {PROVIDER_INFO[item].name}
                         </div>
                         <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -646,7 +646,7 @@ export function SelfHostedWizard() {
       >
         <div className="space-y-7">
           <section className="rounded-[1.75rem] border border-black/5 bg-white/70 p-4 md:p-5">
-            <div className="text-sm font-semibold tracking-[-0.02em]">
+            <div className="text-sm font-semibold">
               {isZh ? "随机子域名策略" : "Random subdomain policy"}
             </div>
             <p className="mt-2 text-sm leading-7 text-muted-foreground">
@@ -670,7 +670,7 @@ export function SelfHostedWizard() {
                       {item === "vless-reality" ? "VR" : "H2"}
                     </span>
                     <div>
-                      <div className="text-lg font-semibold tracking-[-0.02em]">
+                      <div className="text-lg font-semibold">
                         {t(PROTOCOL_INFO[item].nameKey)}
                       </div>
                       <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -697,7 +697,7 @@ export function SelfHostedWizard() {
                 className={`choice-card min-h-[110px] ${cleanupMode === "duration" ? "choice-card-active" : ""}`}
               >
                 <div className="text-left">
-                  <div className="text-base font-semibold tracking-[-0.02em]">
+                  <div className="text-base font-semibold">
                     {localText.cleanupModeDuration}
                   </div>
                   <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -710,7 +710,7 @@ export function SelfHostedWizard() {
                 className={`choice-card min-h-[110px] ${cleanupMode === "datetime" ? "choice-card-active" : ""}`}
               >
                 <div className="text-left">
-                  <div className="text-base font-semibold tracking-[-0.02em]">
+                  <div className="text-base font-semibold">
                     {localText.cleanupModeDatetime}
                   </div>
                   <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -892,7 +892,7 @@ export function SelfHostedWizard() {
       >
         <div className="space-y-6">
           <section className="rounded-[1.75rem] border border-black/5 bg-white/72 p-5">
-            <div className="mb-4 text-sm font-semibold tracking-[-0.02em]">
+            <div className="mb-4 text-sm font-semibold">
               {isZh ? "部署摘要" : "Deployment summary"}
             </div>
             <div className="grid gap-3 md:grid-cols-2">

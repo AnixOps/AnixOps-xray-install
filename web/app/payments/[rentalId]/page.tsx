@@ -284,7 +284,7 @@ export default function PaymentRentalDetailPage() {
           <Card className="overflow-hidden">
             <div className="border-b p-5">
               <div className="section-eyebrow">Node snapshot</div>
-              <div className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+              <div className="mt-2 text-2xl font-semibold">
                 {isZh ? "节点与支付信息" : "Node and payment info"}
               </div>
               <div className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -303,7 +303,7 @@ export default function PaymentRentalDetailPage() {
           <Card className="space-y-5 p-5">
             <div>
               <div className="section-eyebrow">{isZh ? "节点链接" : "Node link"}</div>
-              <h3 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+              <h3 className="mt-2 text-2xl font-semibold">
                 {isZh ? "可复制的订阅链接" : "Copyable subscription link"}
               </h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -365,7 +365,7 @@ function PageHeader({
     <div className="flex flex-col gap-4 border-b border-black/5 pb-5 md:flex-row md:items-end md:justify-between">
       <div>
         <div className="section-eyebrow">Payments</div>
-        <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em]">{title}</h1>
+        <h1 className="mt-2 text-4xl font-semibold">{title}</h1>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{subtitle}</p>
       </div>
       <Button variant="outline" onClick={onBack} className="self-start">
@@ -392,7 +392,7 @@ function SummaryCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">{label}</div>
-          <div className="mt-3 text-2xl font-semibold tracking-[-0.04em]">{value}</div>
+          <div className="mt-3 text-2xl font-semibold">{value}</div>
         </div>
         <Badge variant={badge}>{tag}</Badge>
       </div>

@@ -283,7 +283,7 @@ function PageHeader({
     <div className="flex flex-col gap-4 border-b border-black/5 pb-5 md:flex-row md:items-end md:justify-between">
       <div>
         <div className="section-eyebrow">Payments</div>
-        <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em]">{title}</h1>
+        <h1 className="mt-2 text-4xl font-semibold">{title}</h1>
       </div>
       <Button variant="outline" onClick={onBack}>
         Back
@@ -296,7 +296,7 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <Card className="p-5">
       <div className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">{label}</div>
-      <div className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{value}</div>
+      <div className="mt-3 text-3xl font-semibold">{value}</div>
     </Card>
   );
 }
@@ -374,7 +374,7 @@ function PaymentRecordCard({
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)] lg:items-start">
         <div className="space-y-3">
           <div className="flex flex-wrap items-baseline gap-2">
-            <span className="text-3xl font-semibold tracking-[-0.05em]">
+            <span className="text-3xl font-semibold">
               ${payment.amount.toFixed(2)}
             </span>
             <span className="text-xs uppercase tracking-[0.22em] text-muted-foreground">

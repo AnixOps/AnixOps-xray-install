@@ -25,7 +25,7 @@ export function WizardFrame({
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="section-eyebrow">{eyebrow}</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">{title}</h2>
+            <h2 className="mt-3 text-3xl font-semibold md:text-4xl">{title}</h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">{description}</p>
           </div>
           <div className="metric-pill self-start">{stepLabel}</div>
@@ -52,7 +52,7 @@ export function WizardAside({
     <Card className="space-y-5 p-5">
       <div>
         <div className="section-eyebrow">{eyebrow}</div>
-        <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{title}</h3>
+        <h3 className="mt-2 text-xl font-semibold">{title}</h3>
       </div>
       <div className="space-y-3">
         {rows.map((row) => (

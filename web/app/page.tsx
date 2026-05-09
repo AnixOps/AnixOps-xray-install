@@ -154,7 +154,7 @@ function ModeSelection({
             </div>
 
             <div className="space-y-4">
-              <h1 className="gradient-title max-w-5xl text-[2.9rem] font-semibold leading-[1.02] tracking-[-0.065em] sm:text-6xl md:text-7xl">
+              <h1 className="gradient-title max-w-5xl text-[2.9rem] font-semibold leading-[1.02] sm:text-6xl md:text-7xl">
                 {heroTitle}
               </h1>
               <p className="max-w-2xl text-base leading-8 text-muted-foreground md:text-lg">
@@ -238,7 +238,7 @@ function ModeSelection({
         <Card className="space-y-5 p-6 md:p-7">
           <div>
             <div className="section-eyebrow">{isZh ? "Design principles" : "Design principles"}</div>
-            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">
+            <h2 className="mt-2 text-3xl font-semibold md:text-4xl">
               {isZh ? "把复杂路径压成可判断的步骤。" : "Compress complex paths into steps you can judge at a glance."}
             </h2>
           </div>
@@ -246,7 +246,7 @@ function ModeSelection({
           <div className="space-y-3">
             {principles.map((item) => (
               <div key={item.title} className="rounded-[1.6rem] border border-black/5 bg-white/75 p-5">
-                <div className="text-lg font-semibold tracking-[-0.03em]">{item.title}</div>
+                <div className="text-lg font-semibold">{item.title}</div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
               </div>
             ))}
@@ -257,7 +257,7 @@ function ModeSelection({
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <div className="section-eyebrow">{t("mode.compare.title")}</div>
-              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.045em] md:text-4xl">
+              <h2 className="mt-2 text-3xl font-semibold md:text-4xl">
                 {isZh ? "从入口到交付，始终保持同一套节奏。" : "One cadence from entry to delivery."}
               </h2>
             </div>
@@ -300,7 +300,7 @@ function ModeSelection({
         {outcomeCards.map((item, index) => (
           <Card key={item.title} className={`p-6 ${index === 1 ? "md:translate-y-4" : ""}`}>
             <div className="section-eyebrow">{isZh ? "Outcome" : "Outcome"}</div>
-            <h3 className="mt-3 text-2xl font-semibold tracking-[-0.04em]">{item.title}</h3>
+            <h3 className="mt-3 text-2xl font-semibold">{item.title}</h3>
             <p className="mt-3 text-sm leading-7 text-muted-foreground">{item.body}</p>
           </Card>
         ))}
@@ -325,7 +325,7 @@ function HeroPreview() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase tracking-[0.24em] text-white/45">Delivery state</div>
-                <div className="mt-2 text-3xl font-semibold tracking-[-0.05em]">Ready in motion</div>
+                <div className="mt-2 text-3xl font-semibold">Ready in motion</div>
               </div>
               <div className="rounded-full border border-white/16 bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-white/70">
                 Live
@@ -384,7 +384,7 @@ function PreviewTile({
   return (
     <div className="rounded-[1.25rem] border border-white/10 bg-white/10 p-4 backdrop-blur-xl">
       <div className="text-[11px] uppercase tracking-[0.22em] text-white/44">{label}</div>
-      <div className={`mt-2 ${emphasize ? "font-mono text-4xl tracking-[-0.07em]" : "text-sm font-semibold"}`}>
+      <div className={`mt-2 ${emphasize ? "font-mono text-4xl" : "text-sm font-semibold"}`}>
         {value}
       </div>
     </div>
@@ -430,7 +430,7 @@ function FlowTrack({
   return (
     <div className="rounded-[1.7rem] border border-black/5 bg-white/70 p-5">
       <div className="section-eyebrow">{eyebrow}</div>
-      <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">{title}</h3>
+      <h3 className="mt-3 text-xl font-semibold">{title}</h3>
       <div className="mt-4 space-y-2.5">
         {steps.map((step, index) => (
           <div key={step} className="flex gap-3 rounded-2xl border border-black/5 bg-white/80 px-3 py-3">
@@ -470,7 +470,7 @@ function ModeCard({
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="section-eyebrow">{eyebrow}</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">{title}</h2>
+            <h2 className="mt-3 text-3xl font-semibold">{title}</h2>
             <p className="mt-3 max-w-xl text-sm leading-7 text-muted-foreground md:text-base">{description}</p>
           </div>
           <Badge variant="outline" className="px-3 py-1">
@@ -528,7 +528,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               AX
             </div>
             <div className="text-left">
-              <div className="text-base font-semibold tracking-[-0.03em]">AnixOps</div>
+              <div className="text-base font-semibold">AnixOps</div>
               <div className="hidden text-[11px] uppercase tracking-[0.22em] text-muted-foreground md:block">
                 Private node delivery
               </div>
@@ -599,7 +599,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <footer className="mt-auto w-full px-4 pb-8">
         <div className="mx-auto grid max-w-6xl gap-4 rounded-[1.9rem] border border-white/60 bg-white/65 px-5 py-5 backdrop-blur-xl md:grid-cols-[1.2fr_0.8fr] md:px-6">
           <div>
-            <div className="text-sm font-semibold tracking-[-0.02em] text-foreground">
+            <div className="text-sm font-semibold text-foreground">
               Calm control for self-hosted and rental node delivery.
             </div>
             <div className="mt-2 text-sm leading-6 text-muted-foreground">

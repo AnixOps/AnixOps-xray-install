@@ -49,7 +49,7 @@ export default function AuthCallbackPage() {
           {error ? "!" : "AX"}
         </div>
         <div className="section-eyebrow">{error ? "Access failed" : "Secure sign-in"}</div>
-        <h1 className="text-3xl font-semibold tracking-[-0.045em]">
+        <h1 className="text-3xl font-semibold">
           {error ? t("error.title") : t("auth.magicLink.signingIn")}
         </h1>
         <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">

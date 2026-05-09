@@ -110,7 +110,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           classNames: {
             toast:
               "rounded-[1.5rem] border border-border/70 bg-white/92 text-foreground shadow-[0_14px_36px_rgba(15,23,42,0.14)] backdrop-blur-xl dark:bg-slate-950/95 dark:text-slate-50",
-            title: "text-sm font-medium tracking-[-0.01em]",
+            title: "text-sm font-medium",
             description: "text-sm leading-6 text-muted-foreground",
             closeButton:
               "border border-border/70 bg-background/90 text-muted-foreground hover:bg-muted dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10",

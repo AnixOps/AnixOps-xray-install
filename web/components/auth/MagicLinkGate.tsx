@@ -138,7 +138,7 @@ export function MagicLinkGate({ variant, returnTo }: MagicLinkGateProps) {
         <div className="relative space-y-6">
           <div className="space-y-3">
             <div className="section-eyebrow text-white/55">{copy.leftEyebrow}</div>
-            <h2 className="max-w-md text-3xl font-semibold tracking-[-0.05em] md:text-4xl">
+            <h2 className="max-w-md text-3xl font-semibold md:text-4xl">
               {copy.leftTitle}
             </h2>
             <p className="max-w-lg text-sm leading-7 text-white/72 md:text-base">
@@ -174,7 +174,7 @@ export function MagicLinkGate({ variant, returnTo }: MagicLinkGateProps) {
       <Card className="space-y-6 p-6 md:p-8">
         <div className="space-y-2">
           <div className="section-eyebrow">{copy.formEyebrow}</div>
-          <h2 className="text-3xl font-semibold tracking-[-0.045em]">{t("auth.magicLink.title")}</h2>
+          <h2 className="text-3xl font-semibold">{t("auth.magicLink.title")}</h2>
           <p className="max-w-xl text-sm leading-7 text-muted-foreground md:text-base">
             {copy.formDescription}
           </p>

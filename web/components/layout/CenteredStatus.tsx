@@ -44,7 +44,7 @@ export function CenteredStatus({
           {iconLabel}
         </div>
         <div className="section-eyebrow">{eyebrow}</div>
-        <h2 className="text-3xl font-semibold tracking-[-0.045em]">{title}</h2>
+        <h2 className="text-3xl font-semibold">{title}</h2>
         <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">{body}</p>
         {meta ? <div className="flex justify-center">{meta}</div> : null}
         {action}
