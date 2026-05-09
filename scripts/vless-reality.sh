@@ -242,23 +242,38 @@ open_firewall() {
 
 apply_safety_policy() {
   log_info "Applying outbound abuse-port blocks..."
-  local tcp_ports="25,465,587,6881:6999,51413"
-  local udp_ports="6881:6999,51413"
+  local tcp_ports=("25" "465" "587" "6881:6999" "51413")
+  local udp_ports=("6881:6999" "51413")
+
+  add_reject_rule() {
+    local tool="$1"
+    local proto="$2"
+    local port_spec="$3"
+
+    if ! "$tool" -C OUTPUT -p "$proto" --dport "$port_spec" -j REJECT 2>/dev/null; then
+      "$tool" -A OUTPUT -p "$proto" --dport "$port_spec" -j REJECT
+    fi
+  }
 
   if command -v iptables &>/dev/null; then
-    iptables -C OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT 2>/dev/null \
-      || iptables -A OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT
-    iptables -C OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT 2>/dev/null \
-      || iptables -A OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT
+    # Use one rule per port spec because multiport rejects range syntax like 6881:6999.
+    for port in "${tcp_ports[@]}"; do
+      add_reject_rule iptables tcp "$port"
+    done
+    for port in "${udp_ports[@]}"; do
+      add_reject_rule iptables udp "$port"
+    done
   else
     log_warn "iptables not found; outbound abuse-port blocks were not applied"
   fi
 
   if command -v ip6tables &>/dev/null; then
-    ip6tables -C OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT 2>/dev/null \
-      || ip6tables -A OUTPUT -p tcp -m multiport --dports "${tcp_ports}" -j REJECT || true
-    ip6tables -C OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT 2>/dev/null \
-      || ip6tables -A OUTPUT -p udp -m multiport --dports "${udp_ports}" -j REJECT || true
+    for port in "${tcp_ports[@]}"; do
+      add_reject_rule ip6tables tcp "$port" || true
+    done
+    for port in "${udp_ports[@]}"; do
+      add_reject_rule ip6tables udp "$port" || true
+    done
   fi
 }
 
