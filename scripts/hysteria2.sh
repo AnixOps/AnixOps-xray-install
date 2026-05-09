@@ -285,31 +285,24 @@ EOF
 # Firewall
 open_firewall() {
   if [[ "$PORT_IS_RANGE" == true ]]; then
-    log_info "Opening UDP port range ${PORT_START}-${PORT_END}..."
-  else
-    log_info "Opening port ${PORT}/udp..."
+    if [[ -n "$FIREWALL_BACKEND" ]]; then
+      log_info "Port hopping will be managed by Hysteria via ${FIREWALL_BACKEND}; skipping ufw/firewalld"
+    else
+      log_warn "No Hysteria firewall backend detected; skipping host firewall changes for port hopping"
+    fi
+    return 0
   fi
 
+  log_info "Opening port ${PORT}/udp..."
+
   if command -v ufw &>/dev/null; then
-    if [[ "$PORT_IS_RANGE" == true ]]; then
-      ufw allow "${PORT_START}:${PORT_END}/udp"
-    else
-      ufw allow "${PORT}/udp"
-    fi
+    ufw allow "${PORT}/udp"
     ufw --force enable 2>/dev/null || true
   elif command -v firewall-cmd &>/dev/null; then
-    if [[ "$PORT_IS_RANGE" == true ]]; then
-      firewall-cmd --permanent --add-port="${PORT_START}-${PORT_END}/udp"
-    else
-      firewall-cmd --permanent --add-port="${PORT}/udp"
-    fi
+    firewall-cmd --permanent --add-port="${PORT}/udp"
     firewall-cmd --reload
   else
-    if [[ "$PORT_IS_RANGE" == true ]]; then
-      log_warn "No firewall tool found, ensure UDP ports ${PORT_START}-${PORT_END} are open"
-    else
-      log_warn "No firewall tool found, ensure port ${PORT}/udp is open"
-    fi
+    log_warn "No firewall tool found, ensure port ${PORT}/udp is open"
   fi
 }
 
