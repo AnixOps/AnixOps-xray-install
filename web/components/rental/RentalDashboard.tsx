@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Badge, Tabs, TabsContent, TabsList, TabsTrigger, useToast } from "@/components/ui";
+import { Button, Card, Badge, useToast } from "@/components/ui";
 import { WizardSummaryRow as SummaryRow } from "@/components/layout/WizardLayout";
 import { useLocaleStore } from "@/lib/i18n/store";
 import { RENTAL_PLANS } from "@/lib/deploy/types";
@@ -288,8 +288,7 @@ export function RentalDashboard({
     <div className="animate-rise mx-auto max-w-6xl space-y-5">
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-5">
-          <Card className="relative overflow-hidden bg-slate-950 p-6 text-white shadow-[0_30px_80px_rgba(15,23,42,0.24)] md:p-8">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(70,153,255,0.34),transparent_30%),radial-gradient(circle_at_85%_70%,rgba(255,176,99,0.18),transparent_34%)]" />
+          <Card className="relative overflow-hidden bg-slate-950 p-6 text-white shadow-sm md:p-8">
             <div className="relative space-y-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
@@ -315,7 +314,7 @@ export function RentalDashboard({
                 </Badge>
               </div>
 
-              <div className="rounded-[1.9rem] border border-white/12 bg-white/10 p-5 backdrop-blur-xl">
+              <div className="rounded-lg border border-white/12 bg-white/10 p-5 ">
                 <div className="text-xs uppercase tracking-[0.24em] text-white/45">{t("status.remaining")}</div>
                 <div className="mt-3 font-mono text-6xl font-semibold tabular-nums md:text-7xl">
                   {String(hours).padStart(2, "0")}:{String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
@@ -345,7 +344,7 @@ export function RentalDashboard({
                 <div>
                   <div className="section-eyebrow">{t("status.config")}</div>
                   <h2 className="mt-2 text-2xl font-semibold">
-                    {isZh ? "客户端导出" : "Client exports"}
+                    {isZh ? "连接配置" : "Connection profile"}
                   </h2>
                 </div>
                 <Badge className="self-start px-3 py-1 md:self-auto">
@@ -353,81 +352,80 @@ export function RentalDashboard({
                 </Badge>
               </div>
 
-              <Tabs
-                value={selectedClient}
-                onValueChange={(value) => setSelectedClient(value as typeof selectedClient)}
-                className="space-y-4"
-              >
-                <TabsList className="flex h-auto w-full flex-wrap gap-2 rounded-[1.5rem] border border-black/5 bg-white/70 p-2">
-                  {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
-                    <TabsTrigger key={key} value={key} className="rounded-xl px-4 py-2 text-xs font-semibold">
-                      {clientLabels[key]}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-
-                {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
-                  <TabsContent key={key} value={key} className="space-y-3">
-                    <div className="code-block max-h-72 overflow-auto whitespace-pre-wrap">
-                      {config?.[key] || ""}
-                    </div>
-                  </TabsContent>
-                ))}
-              </Tabs>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(currentClientConfig);
-                    showToast(t("common.copied"), "success");
-                  }}
-                >
-                  {t("common.copy")}
-                </Button>
-                <Button variant="outline" onClick={() => handleLoadSubscription("universal")}>
-                  {t("subscription.title")}
-                </Button>
+              <div className="code-block max-h-72 overflow-auto whitespace-pre-wrap">
+                {currentClientConfig}
               </div>
 
-              <div className="space-y-3 rounded-[1.6rem] border border-black/5 bg-white/70 p-4">
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant={subscriptionFormat === "universal" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => handleLoadSubscription("universal")}
-                  >
-                    {t("subscription.format.universal")}
-                  </Button>
-                  <Button
-                    variant={subscriptionFormat === "raw" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => handleLoadSubscription("raw")}
-                  >
-                    {t("subscription.format.raw")}
-                  </Button>
-                  {visibleSubscription && (
+              <Button
+                onClick={() => {
+                  navigator.clipboard?.writeText(currentClientConfig);
+                  showToast(t("common.copied"), "success");
+                }}
+                className="h-12 w-full"
+              >
+                {isZh ? "复制连接配置" : "Copy connection profile"}
+              </Button>
+
+              <details className="rounded-lg border border-border bg-card px-4 py-3">
+                <summary className="cursor-pointer text-sm font-semibold">
+                  {isZh ? "高级导出" : "Advanced exports"}
+                </summary>
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">
+                      {isZh ? "客户端格式" : "Client format"}
+                    </label>
+                    <select
+                      value={selectedClient}
+                      onChange={(event) => setSelectedClient(event.target.value as typeof selectedClient)}
+                      className="mt-2 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                    >
+                      {(Object.keys(clientLabels) as Array<keyof typeof clientLabels>).map((key) => (
+                        <option key={key} value={key}>
+                          {clientLabels[key]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-3">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(visibleSubscription);
-                        showToast(t("common.copied"), "success");
-                      }}
+                      onClick={() => handleLoadSubscription("universal")}
                     >
-                      {t("subscription.copy")}
+                      {t("subscription.format.universal")}
                     </Button>
-                  )}
-                </div>
-                {subscriptionError ? (
-                  <div className="rounded-[1.25rem] border border-dashed border-black/10 bg-white/70 px-4 py-3 text-sm leading-6 text-muted-foreground">
-                    {subscriptionError}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleLoadSubscription("raw")}
+                    >
+                      {t("subscription.format.raw")}
+                    </Button>
+                    {visibleSubscription && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(visibleSubscription);
+                          showToast(t("common.copied"), "success");
+                        }}
+                      >
+                        {t("subscription.copy")}
+                      </Button>
+                    )}
                   </div>
-                ) : null}
-                {visibleSubscription ? (
-                  <div className="code-block break-all">{visibleSubscription}</div>
-                ) : null}
-              </div>
+                  {subscriptionError ? (
+                    <div className="rounded-lg border border-dashed border-border bg-card px-4 py-3 text-sm leading-6 text-muted-foreground">
+                      {subscriptionError}
+                    </div>
+                  ) : null}
+                  {visibleSubscription ? (
+                    <div className="code-block break-all">{visibleSubscription}</div>
+                  ) : null}
+                </div>
+              </details>
             </Card>
           )}
 
@@ -470,15 +468,11 @@ export function RentalDashboard({
             </div>
           </Card>
 
-          <Card className="space-y-4 p-5">
-            <div>
-              <div className="section-eyebrow">{isZh ? "Controls" : "Controls"}</div>
-              <h3 className="mt-2 text-xl font-semibold">
-                {isZh ? "直接操作当前节点" : "Operate the current node directly"}
-              </h3>
-            </div>
-
-            <div className="space-y-3">
+          <details className="rounded-lg border border-border bg-card p-5 shadow-sm">
+            <summary className="cursor-pointer text-sm font-semibold">
+              {isZh ? "高级节点操作" : "Advanced node controls"}
+            </summary>
+            <div className="mt-4 space-y-3">
               {rental.status === "active" ? (
                 <ActionButton
                   title={t("status.pause")}
@@ -510,7 +504,7 @@ export function RentalDashboard({
                 destructive
               />
             </div>
-          </Card>
+          </details>
 
           <Card className="space-y-3 p-5 text-sm leading-6 text-muted-foreground">
             <div className="font-semibold text-foreground">{t("privacy.title")}</div>
@@ -551,7 +545,7 @@ export function RentalDashboard({
             ))}
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-black/5 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
             <Button
               variant="outline"
               onClick={() => {
@@ -575,7 +569,7 @@ export function RentalDashboard({
 
 function PreviewMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.35rem] border border-white/10 bg-white/10 p-4 backdrop-blur-xl">
+    <div className="rounded-lg border border-white/10 bg-white/10 p-4 ">
       <div className="text-[11px] uppercase tracking-[0.22em] text-white/44">{label}</div>
       <div className="mt-2 text-sm font-semibold">{value}</div>
     </div>

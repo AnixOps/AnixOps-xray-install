@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCatalogPlans, buildCatalogRegions, getCatalogRuntimeConfig } from "../src/catalog.js";
+import { buildCatalogPlans, buildCatalogRegions, getCatalogRegionPool, getCatalogRuntimeConfig } from "../src/catalog.js";
 import { buildRentalQuote, normalizeQuoteDuration } from "../src/pricing.js";
 
 describe("catalog and rental quote helpers", () => {
@@ -16,7 +16,10 @@ describe("catalog and rental quote helpers", () => {
   });
 
   it("builds a current-region catalog from runtime config", () => {
-    const regions = buildCatalogRegions({ provider: "vultr", region: "nrt", plan: "vhf-1c-1gb" });
+    const regions = buildCatalogRegions(
+      { provider: "vultr", region: "nrt", plan: "vhf-1c-1gb" },
+      {} as NodeJS.ProcessEnv,
+    );
 
     expect(regions).toEqual([expect.objectContaining({
       id: "nrt",
@@ -26,11 +29,35 @@ describe("catalog and rental quote helpers", () => {
       defaultPlan: "vhf-1c-1gb",
       status: "available",
       current: true,
+      automatic: true,
     })]);
   });
 
+  it("builds an automatic region pool from configured fallbacks", () => {
+    expect(getCatalogRegionPool({
+      VPS_REGION: "nrt",
+      VPS_REGION_POOL: "nrt, sgp, nrt, fra",
+    } as NodeJS.ProcessEnv)).toEqual(["nrt", "sgp", "fra"]);
+
+    const regions = buildCatalogRegions(
+      { provider: "vultr", region: "nrt", plan: "vhf-1c-1gb" },
+      { VPS_REGION_POOL: "nrt,sgp" } as NodeJS.ProcessEnv,
+    );
+    expect(regions.map((region) => ({
+      id: region.id,
+      current: region.current,
+      automatic: region.automatic,
+    }))).toEqual([
+      { id: "nrt", current: true, automatic: true },
+      { id: "sgp", current: false, automatic: true },
+    ]);
+  });
+
   it("builds plan pricing durations from the canonical rental table", () => {
-    const plans = buildCatalogPlans({ provider: "vultr", region: "nrt", plan: "vhf-1c-1gb" });
+    const plans = buildCatalogPlans(
+      { provider: "vultr", region: "nrt", plan: "vhf-1c-1gb" },
+      {} as NodeJS.ProcessEnv,
+    );
 
     expect(plans[0]?.durations).toEqual([
       { durationHours: 1, durationMinutes: 60, pricePerHour: 0.5, totalPrice: 0.5, currency: "usd" },

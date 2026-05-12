@@ -109,6 +109,25 @@ describe("provision server health check logic", () => {
     expect(body.error).toBe("Invalid protocol");
   });
 
+  it("rejects hysteria2 in formal release mode", async () => {
+    process.env.CLOUD_PROVIDER = "vultr";
+    process.env.SERVER_TOKEN = "test-token-at-least-32-chars-long";
+    process.env.VULTR_API_KEY = "vultr-key";
+    process.env.NEXT_PUBLIC_RELEASE_PROFILE = "formal";
+
+    const { server } = await import("../server");
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/provision",
+      headers: { Authorization: "Bearer test-token-at-least-32-chars-long" },
+      body: { rentalId: "test", protocol: "hysteria2" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.payload);
+    expect(body.error).toBe("Invalid protocol");
+  });
+
   it("returns 400 for missing fields on provision endpoint", async () => {
     process.env.CLOUD_PROVIDER = "vultr";
     process.env.SERVER_TOKEN = "test-token-at-least-32-chars-long";

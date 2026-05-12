@@ -1,9 +1,7 @@
-import type { Protocol } from "./deploy/types";
-
 export type ReleaseProfile = "test" | "formal";
 
 export const STRICT_COMPLIANCE_PROFILE_ID = "restricted-egress";
-export const FORMAL_RELEASE_PROTOCOLS: readonly Protocol[] = ["vless-reality"];
+export const FORMAL_RELEASE_PROTOCOLS = ["vless-reality"] as const;
 
 function normalizeReleaseProfile(value: string | null | undefined): ReleaseProfile | null {
   const normalized = value?.trim().toLowerCase();
@@ -22,19 +20,14 @@ function normalizeReleaseProfile(value: string | null | undefined): ReleaseProfi
   return null;
 }
 
-export function getReleaseProfile(): ReleaseProfile {
-  return normalizeReleaseProfile(process.env.NEXT_PUBLIC_RELEASE_PROFILE) || "test";
+export function isFormalRelease(source: NodeJS.ProcessEnv = process.env) {
+  return normalizeReleaseProfile(source.NEXT_PUBLIC_RELEASE_PROFILE) === "formal";
 }
 
-export function isFormalRelease() {
-  return getReleaseProfile() === "formal";
-}
-
-export function getAvailableProtocols(formalRelease = isFormalRelease()): Protocol[] {
-  return formalRelease ? [...FORMAL_RELEASE_PROTOCOLS] : ["vless-reality", "hysteria2"];
-}
-
-export function isProtocolAllowedForRelease(protocol: string | null | undefined, formalRelease = isFormalRelease()) {
+export function isProtocolAllowedForRelease(
+  protocol: string | null | undefined,
+  formalRelease = isFormalRelease(),
+) {
   if (protocol !== "vless-reality" && protocol !== "hysteria2") {
     return false;
   }

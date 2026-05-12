@@ -24,6 +24,7 @@ const envSchema = z.object({
   AUDIT_ANCHOR_MIN_NATIVE_BALANCE: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  NEXT_PUBLIC_RELEASE_PROFILE: z.string().optional(),
   PROVISION_SERVER_URL: z.string().default("http://localhost:3001"),
   PROVISION_SERVER_TOKEN: z.string().default("dev-token"),
   API_SECRET: z.string().default("dev-secret"),

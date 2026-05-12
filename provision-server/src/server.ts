@@ -86,6 +86,19 @@ function buildStageErrorResponse(error: unknown) {
   };
 }
 
+function isFormalRelease(source: NodeJS.ProcessEnv = process.env) {
+  const normalized = String(source.NEXT_PUBLIC_RELEASE_PROFILE || "").trim().toLowerCase();
+  return ["formal", "production", "prod", "release"].includes(normalized);
+}
+
+function isProtocolAllowedForRelease(protocol: string | null | undefined, formalRelease = isFormalRelease()) {
+  if (protocol !== "vless-reality" && protocol !== "hysteria2") {
+    return false;
+  }
+
+  return !formalRelease || protocol === "vless-reality";
+}
+
 // Auth middleware
 const authenticate: preHandlerHookHandler = async (request: FastifyRequest, reply: FastifyReply) => {
   const auth = request.headers.authorization;
@@ -96,12 +109,15 @@ const authenticate: preHandlerHookHandler = async (request: FastifyRequest, repl
 
 // Provision endpoint (called by Cloudflare Worker queue consumer)
 server.post("/api/provision", { preHandler: authenticate }, async (request, reply) => {
-  const { rentalId, protocol, attemptId, attemptNo, maxAttempts, compliancePolicy } = request.body as {
+  const { rentalId, protocol, attemptId, attemptNo, maxAttempts, provider, region, plan, compliancePolicy } = request.body as {
     rentalId: string;
     protocol: string;
     attemptId?: string;
     attemptNo?: number;
     maxAttempts?: number;
+    provider?: string;
+    region?: string;
+    plan?: string;
     compliancePolicy?: {
       profileId?: string;
       version?: string;
@@ -116,8 +132,7 @@ server.post("/api/provision", { preHandler: authenticate }, async (request, repl
     return reply.code(400).send({ error: "Missing rentalId or protocol" });
   }
 
-  const validProtocols = ["vless-reality", "hysteria2"];
-  if (!validProtocols.includes(protocol)) {
+  if (!isProtocolAllowedForRelease(protocol)) {
     return reply.code(400).send({ error: "Invalid protocol" });
   }
 
@@ -126,6 +141,9 @@ server.post("/api/provision", { preHandler: authenticate }, async (request, repl
       attemptId,
       attemptNo: Number.isFinite(Number(attemptNo)) ? Number(attemptNo) : undefined,
       maxAttempts: Number.isFinite(Number(maxAttempts)) ? Number(maxAttempts) : undefined,
+      provider: typeof provider === "string" && provider.trim() ? provider.trim() : undefined,
+      region: typeof region === "string" && region.trim() ? region.trim() : undefined,
+      plan: typeof plan === "string" && plan.trim() ? plan.trim() : undefined,
       compliancePolicy,
     });
     return reply.send(result);

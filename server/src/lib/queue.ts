@@ -18,6 +18,11 @@ interface ProvisionJob {
   rentalId: string;
   protocol?: string;
   durationHours?: number;
+  provider?: string;
+  region?: string;
+  plan?: string;
+  excludedRegions?: string[];
+  autoRecovery?: boolean;
   action?: "destroy";
   vpsId?: string;
   ip?: string;

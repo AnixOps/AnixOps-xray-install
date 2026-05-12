@@ -23,8 +23,8 @@ function getDigitaloceanToken() {
   return process.env.DIGITALOCEAN_TOKEN || process.env.DO_API_TOKEN || "";
 }
 
-function getProvider(): CloudProvider {
-  switch (CLOUD_PROVIDER) {
+function getProvider(providerName = CLOUD_PROVIDER, region = process.env.VPS_REGION || "nrt"): CloudProvider {
+  switch (providerName) {
     case "vultr":
       return createVultrProvider(process.env.VULTR_API_KEY!);
     case "digitalocean":
@@ -33,10 +33,10 @@ function getProvider(): CloudProvider {
       const ak = process.env.AWS_ACCESS_KEY_ID;
       const sk = process.env.AWS_SECRET_ACCESS_KEY;
       if (!ak || !sk) throw new Error("AWS provider requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY");
-      return createAWSProvider(process.env.AWS_REGION || process.env.VPS_REGION || "us-east-1", ak, sk);
+      return createAWSProvider(region || process.env.AWS_REGION || process.env.VPS_REGION || "us-east-1", ak, sk);
     }
     default:
-      throw new Error(`Unsupported cloud provider: ${CLOUD_PROVIDER}`);
+      throw new Error(`Unsupported cloud provider: ${providerName}`);
   }
 }
 
@@ -112,6 +112,9 @@ interface ProvisionAttemptContext {
   attemptId?: string;
   attemptNo?: number;
   maxAttempts?: number;
+  provider?: string;
+  region?: string;
+  plan?: string;
   compliancePolicy?: CompliancePolicy;
 }
 
@@ -312,23 +315,27 @@ function buildCompliancePolicyCommand(policy: CompliancePolicy | undefined) {
   }
   const ports = (policy.allowedPorts && policy.allowedPorts.length > 0 ? policy.allowedPorts : [53, 80, 443])
     .filter((port) => Number.isInteger(port) && port > 0 && port <= 65535);
-  const tcpRules = ports.map((port) => `iptables -A ANIXOPS_EGRESS -p tcp --dport ${port} -j ACCEPT`).join("; ");
-  const udpRules = ports.map((port) => `iptables -A ANIXOPS_EGRESS -p udp --dport ${port} -j ACCEPT`).join("; ");
-  const policyJson = JSON.stringify(policy).replace(/'/g, "'\\''");
+  const portRules = ports.flatMap((port) => [
+    `  iptables -A ANIXOPS_EGRESS -p tcp --dport ${port} -j ACCEPT`,
+    `  iptables -A ANIXOPS_EGRESS -p udp --dport ${port} -j ACCEPT`,
+  ]);
+  const policyJson = JSON.stringify(policy);
   return [
+    "set -e",
     "mkdir -p /etc/anixops",
-    `printf '%s' '${policyJson}' > /etc/anixops/compliance-policy.json`,
+    "cat > /etc/anixops/compliance-policy.json <<'JSON'",
+    policyJson,
+    "JSON",
     "if command -v iptables >/dev/null 2>&1; then",
-    "iptables -N ANIXOPS_EGRESS 2>/dev/null || true",
-    "iptables -F ANIXOPS_EGRESS",
-    "iptables -C OUTPUT -j ANIXOPS_EGRESS 2>/dev/null || iptables -A OUTPUT -j ANIXOPS_EGRESS",
-    "iptables -A ANIXOPS_EGRESS -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
-    "iptables -A ANIXOPS_EGRESS -o lo -j ACCEPT",
-    tcpRules || "true",
-    udpRules || "true",
-    "iptables -A ANIXOPS_EGRESS -j REJECT",
+    "  iptables -N ANIXOPS_EGRESS 2>/dev/null || true",
+    "  iptables -F ANIXOPS_EGRESS",
+    "  iptables -C OUTPUT -j ANIXOPS_EGRESS 2>/dev/null || iptables -A OUTPUT -j ANIXOPS_EGRESS",
+    "  iptables -A ANIXOPS_EGRESS -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+    "  iptables -A ANIXOPS_EGRESS -o lo -j ACCEPT",
+    ...portRules,
+    "  iptables -A ANIXOPS_EGRESS -j REJECT",
     "fi",
-  ].join("; ");
+  ].join("\n");
 }
 
 async function prepareCloudInitUserData(plan: ProtocolInstallPlan, stages: StageRecorder) {
@@ -359,12 +366,13 @@ export async function provisionNode(
   const stages = new StageRecorder(rentalId, "provision");
   const attemptMeta = buildAttemptMeta(attempt);
   try {
-    const provider = getProvider();
-    const region = process.env.VPS_REGION || "nrt";
-    const plan = process.env.VPS_PLAN || "vhf-1c-1gb";
+    const providerName = attempt.provider || CLOUD_PROVIDER;
+    const region = attempt.region || process.env.VPS_REGION || "nrt";
+    const plan = attempt.plan || process.env.VPS_PLAN || "vhf-1c-1gb";
+    const provider = getProvider(providerName, region);
     stages.record("stage1-1-provider-ready", "ok", "Cloud provider selected", {
       ...attemptMeta,
-      provider: CLOUD_PROVIDER,
+      provider: providerName,
       region,
       plan,
     });
@@ -383,7 +391,7 @@ export async function provisionNode(
       "stage1-3-vps-reuse-check",
       "Check for existing VPS with rental label",
       async () => provider.listServersByTag(rentalId),
-      { provider: CLOUD_PROVIDER },
+      { provider: providerName, region, plan },
     );
 
     if (existingServers.length > 1) {
@@ -392,7 +400,26 @@ export async function provisionNode(
       });
     }
 
-    const created = existingServers[0] || await runStage(
+    const reusableServers = attempt.attemptNo && attempt.attemptNo > 1 && existingServers.length > 0
+      ? await runStage(
+        stages,
+        "stage1-3-vps-stale-cleanup",
+        "Clean stale VPS before automatic region recovery",
+        async () => {
+          await Promise.allSettled(existingServers.map((server) => provider.deleteServer(server.id)));
+          return [];
+        },
+        {
+          ...attemptMeta,
+          provider: providerName,
+          region,
+          plan,
+          count: existingServers.length,
+        },
+      )
+      : existingServers;
+
+    const created = reusableServers[0] || await runStage(
       stages,
       "stage1-3-vps-create",
       "Create VPS through cloud provider API",
@@ -403,14 +430,14 @@ export async function provisionNode(
         tag: rentalId,
         userData: userData || undefined,
       }),
-      { provider: CLOUD_PROVIDER, region, plan, installMode: userData ? "cloud-init-preferred" : "ssh" },
+      { provider: providerName, region, plan, installMode: userData ? "cloud-init-preferred" : "ssh" },
     );
 
-    if (existingServers[0]) {
+    if (reusableServers[0]) {
       stages.record("stage1-3-vps-create", "ok", "Reusing existing VPS by rental label", {
-        vpsId: existingServers[0].id,
-        ip: normalizeIp(existingServers[0].ip) || null,
-        status: existingServers[0].status,
+        vpsId: reusableServers[0].id,
+        ip: normalizeIp(reusableServers[0].ip) || null,
+        status: reusableServers[0].status,
       });
     }
 
@@ -620,12 +647,12 @@ async function readCloudInitConfig(
   }
 
   const config = buildProtocolConfigFromOutput(ip, plan, outputResult.stdout, stages, "cloud-init");
-  await applyCompliancePolicy(ssh, ip, plan, stages);
   stages.record("stage3-5-cloud-init-used", "ok", "Using protocol installed by cloud-init", {
     ip,
     protocol: plan.protocol,
     port: plan.port,
   });
+  await applyCompliancePolicy(ssh, ip, plan, stages);
   return config;
 }
 
@@ -661,8 +688,9 @@ async function deployInstallPlanViaSsh(
     });
   }
 
+  const config = buildProtocolConfigFromOutput(ip, plan, result.stdout || "", stages, "ssh");
   await applyCompliancePolicy(ssh, ip, plan, stages);
-  return buildProtocolConfigFromOutput(ip, plan, result.stdout || "", stages, "ssh");
+  return config;
 }
 
 async function applyCompliancePolicy(

@@ -169,6 +169,7 @@ describe("delivery connectivity probes", () => {
     }, fetchImpl)).resolves.toMatchObject({
       decision: "fail",
       mode: "external",
+      reason: "timeout",
       probeRunId: "probe-2",
       completedNodes: 3,
       requiredNodes: 3,

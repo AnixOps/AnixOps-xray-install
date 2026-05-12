@@ -1,6 +1,11 @@
 import { randomUUID } from "crypto";
 import { eq, sql } from "drizzle-orm";
 import { complianceProfiles, db } from "./db/index.js";
+import {
+  filterComplianceProfilesForRelease,
+  isFormalRelease,
+  STRICT_COMPLIANCE_PROFILE_ID,
+} from "./release-profile.js";
 
 export type ComplianceProfilePayload = {
   id: string;
@@ -117,7 +122,7 @@ export async function ensureComplianceSchema() {
         allowedPorts: [],
         allowedCidrs: [],
         blockedProtocols: [],
-        isDefault: true,
+        isDefault: false,
       });
       await seedComplianceProfile({
         id: "restricted-egress",
@@ -128,8 +133,19 @@ export async function ensureComplianceSchema() {
         allowedPorts: [53, 80, 443],
         allowedCidrs: ["0.0.0.0/0"],
         blockedProtocols: ["hysteria2"],
-        isDefault: false,
+        isDefault: true,
       });
+      await db.execute(sql`
+        UPDATE compliance_profiles
+        SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP
+        WHERE id <> ${STRICT_COMPLIANCE_PROFILE_ID}
+          AND is_default = TRUE
+      `);
+      await db.execute(sql`
+        UPDATE compliance_profiles
+        SET is_default = TRUE, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${STRICT_COMPLIANCE_PROFILE_ID}
+      `);
     })();
   }
 
@@ -162,19 +178,31 @@ async function seedComplianceProfile(input: Omit<ComplianceProfilePayload, "stat
       ${input.isDefault},
       'active'
     )
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      mode = EXCLUDED.mode,
+      version = EXCLUDED.version,
+      description = EXCLUDED.description,
+      allowed_ports = EXCLUDED.allowed_ports,
+      allowed_cidrs = EXCLUDED.allowed_cidrs,
+      blocked_protocols = EXCLUDED.blocked_protocols,
+      is_default = EXCLUDED.is_default,
+      status = EXCLUDED.status,
+      updated_at = CURRENT_TIMESTAMP
   `);
 }
 
 export async function listComplianceProfiles() {
   await ensureComplianceSchema();
   const rows = await db.select().from(complianceProfiles).where(eq(complianceProfiles.status, "active"));
-  return rows.map(formatComplianceProfile);
+  return filterComplianceProfilesForRelease(rows.map(formatComplianceProfile), isFormalRelease());
 }
 
 export async function resolveComplianceProfile(profileId?: unknown) {
   await ensureComplianceSchema();
-  const normalized = normalizeComplianceProfileId(profileId);
+  const normalized = isFormalRelease()
+    ? STRICT_COMPLIANCE_PROFILE_ID
+    : normalizeComplianceProfileId(profileId) || STRICT_COMPLIANCE_PROFILE_ID;
   const rows = normalized
     ? await db.select().from(complianceProfiles).where(eq(complianceProfiles.id, normalized)).limit(1)
     : await db.select().from(complianceProfiles).where(eq(complianceProfiles.isDefault, true)).limit(1);

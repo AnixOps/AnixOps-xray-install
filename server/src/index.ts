@@ -36,7 +36,7 @@ import { buildAdminEmailSet, isAdminEmail } from "./auth/admin.js";
 import { createMagicLinkMailer, sendMagicLinkEmail } from "./auth/email.js";
 import { hasExhaustedAttempts } from "./lib/job-attempts.js";
 import { buildRentalProgressPayload } from "./rental-progress.js";
-import { buildCatalogPlans, buildCatalogRegions, getCatalogRuntimeConfig } from "./catalog.js";
+import { buildCatalogPlans, buildCatalogRegions, getCatalogRegionPool, getCatalogRuntimeConfig } from "./catalog.js";
 import { buildRentalQuote, getRentalPrice, isValidRentalDuration } from "./pricing.js";
 import {
   buildLegacyWalletLedger,
@@ -129,6 +129,7 @@ import {
   resolveComplianceProfile,
   validateProtocolForCompliance,
 } from "./compliance.js";
+import { STRICT_COMPLIANCE_PROFILE_ID, isProtocolAllowedForRelease } from "./release-profile.js";
 import {
   ensureComplianceStatsSchema,
   formatComplianceStat,
@@ -426,12 +427,166 @@ function buildProvisionFailureMessage(status: number, body: ProvisionServerRespo
 function sanitizeProvisionJobData(data: unknown) {
   const record = toRecord(data);
   const sanitized: Record<string, unknown> = {};
-  for (const key of ["rentalId", "protocol", "durationHours", "action", "vpsId", "ip"]) {
+  for (const key of ["rentalId", "protocol", "durationHours", "action", "vpsId", "ip", "provider", "region", "plan", "autoRecovery"]) {
     if (record[key] !== undefined) {
       sanitized[key] = record[key];
     }
   }
   return sanitized;
+}
+
+function normalizeRegionList(value: unknown) {
+  return Array.isArray(value)
+    ? value
+      .map((item) => typeof item === "string" ? item.trim() : "")
+      .filter(isValidProviderRegionId)
+    : [];
+}
+
+function orderRegionPool(regionPool: string[], preferredRegion: string) {
+  const ordered = preferredRegion && isValidProviderRegionId(preferredRegion)
+    ? [preferredRegion, ...regionPool]
+    : regionPool;
+  return [...new Set(ordered.filter(isValidProviderRegionId))];
+}
+
+function selectProvisionRegion(input: {
+  preferredRegion: string;
+  attemptNo: number;
+  autoRecovery: boolean;
+  excludedRegions?: string[];
+}) {
+  const pool = orderRegionPool(
+    getCatalogRegionPool(process.env, input.preferredRegion),
+    input.preferredRegion,
+  );
+  if (!input.autoRecovery) {
+    return pool[0] || input.preferredRegion;
+  }
+
+  const excluded = new Set(input.excludedRegions || []);
+  const available = pool.filter((region) => !excluded.has(region));
+  const rotationPool = available.length > 0 ? available : pool;
+  const index = Math.max(0, input.attemptNo - 1) % Math.max(1, rotationPool.length);
+  return rotationPool[index] || input.preferredRegion;
+}
+
+function getUserStatus(input: { status: string; lastStage?: string | null }) {
+  const stage = input.lastStage || "";
+  if (input.status === "active") return "ready";
+  if (input.status === "paused") return "paused";
+  if (["failed", "released", "expired"].includes(input.status)) return "failed";
+  if (input.status === "destroying") return "disconnecting";
+  if (input.status === "destroyed") return "disconnected";
+  if (stage.startsWith("stage2.5-") || stage.includes("probe")) return "optimizing";
+  if (stage.startsWith("stage3-") || stage.startsWith("stage4-0") || stage.startsWith("stage4-1") || stage.startsWith("stage4-2")) {
+    return "configuring";
+  }
+  return "preparing";
+}
+
+function getUserStatusMessage(userStatus: string, isZh = false) {
+  const messages: Record<string, { zh: string; en: string }> = {
+    preparing: { zh: "正在准备专属线路", en: "Preparing your private route" },
+    optimizing: { zh: "正在自动优化线路", en: "Optimizing route automatically" },
+    configuring: { zh: "正在生成连接配置", en: "Preparing connection profile" },
+    ready: { zh: "节点已就绪", en: "Node is ready" },
+    paused: { zh: "连接已暂停", en: "Connection is paused" },
+    failed: { zh: "当前线路暂不可用，请稍后重试", en: "The route is temporarily unavailable. Please retry later." },
+    disconnecting: { zh: "正在断开并清理资源", en: "Disconnecting and cleaning resources" },
+    disconnected: { zh: "连接已断开", en: "Connection is disconnected" },
+  };
+  return messages[userStatus]?.[isZh ? "zh" : "en"] || messages.preparing[isZh ? "zh" : "en"];
+}
+
+function getPublicRentalStatusPayload(rental: {
+  id: string;
+  status: string;
+  lastStage?: string | null;
+  region?: string | null;
+  attemptCount?: number | null;
+}) {
+  const userStatus = getUserStatus({ status: rental.status, lastStage: rental.lastStage });
+  return {
+    rentalId: rental.id,
+    status: rental.status,
+    userStatus,
+    userMessage: getUserStatusMessage(userStatus),
+    region: rental.region || null,
+    regionMode: "auto",
+    attemptCount: rental.attemptCount || 0,
+  };
+}
+
+function toIso(value: Date | string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function formatPublicRentalDetails(rental: {
+  id: string;
+  protocol: string;
+  status: string;
+  provider?: string | null;
+  region?: string | null;
+  plan?: string | null;
+  attemptCount?: number | null;
+  lastStage?: string | null;
+  ip?: string | null;
+  vpsId?: string | null;
+  durationHours: number;
+  pricePerHour?: number | null;
+  totalPrice?: number | null;
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  complianceProfileId?: string | null;
+  compliancePolicyVersion?: string | null;
+  complianceEnforcedAt?: Date | string | null;
+  startedAt?: Date | string | null;
+  expiresAt?: Date | string | null;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+}, remainingMinutes: number) {
+  const userStatus = getUserStatus({ status: rental.status, lastStage: rental.lastStage });
+  const startedAt = toIso(rental.startedAt);
+  const expiresAt = toIso(rental.expiresAt);
+  return {
+    id: rental.id,
+    protocol: rental.protocol,
+    status: rental.status,
+    userStatus,
+    userMessage: getUserStatusMessage(userStatus),
+    provider: rental.provider || null,
+    region: rental.region || null,
+    regionMode: "auto",
+    plan: rental.plan || null,
+    attemptCount: rental.attemptCount || 0,
+    ip: rental.ip || null,
+    vpsId: rental.vpsId || null,
+    vps_id: rental.vpsId || null,
+    durationHours: rental.durationHours,
+    duration_hours: rental.durationHours,
+    pricePerHour: rental.pricePerHour ?? null,
+    price_per_hour: rental.pricePerHour ?? null,
+    totalPrice: rental.totalPrice ?? null,
+    total_price: rental.totalPrice ?? null,
+    paymentMethod: rental.paymentMethod || null,
+    payment_method: rental.paymentMethod || null,
+    paymentStatus: rental.paymentStatus || null,
+    payment_status: rental.paymentStatus || null,
+    complianceProfileId: rental.complianceProfileId || null,
+    compliancePolicyVersion: rental.compliancePolicyVersion || null,
+    complianceEnforcedAt: toIso(rental.complianceEnforcedAt),
+    startedAt,
+    started_at: startedAt,
+    expiresAt,
+    expires_at: expiresAt,
+    createdAt: toIso(rental.createdAt),
+    updatedAt: toIso(rental.updatedAt),
+    remainingMinutes,
+  };
 }
 
 async function serializeProvisionQueueJob(job: ProvisionQueueJobLike) {
@@ -1906,6 +2061,9 @@ app.post("/api/rental/quote", verifyAuth, async (c) => {
   if (!quote.ok) {
     return c.json({ error: quote.error }, 400);
   }
+  if (!isProtocolAllowedForRelease(quote.quote.protocol)) {
+    return c.json({ error: "Invalid protocol" }, 400);
+  }
 
   const profileResult = await resolveComplianceProfile(toRecord(body).complianceProfileId);
   if (!profileResult.ok) {
@@ -1919,6 +2077,156 @@ app.post("/api/rental/quote", verifyAuth, async (c) => {
   return c.json({
     ...quote.quote,
     complianceProfile: buildCompliancePolicyPayload(profileResult.profile),
+  });
+});
+
+app.post("/api/rental/quick-connect", verifyAuth, async (c) => {
+  const userId = c.get("userId");
+  const freezeBlock = await getUserFreezeBlock(userId);
+  if (freezeBlock) {
+    return c.json(freezeBlock, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const bodyRecord = toRecord(body);
+  const rawDurationHours = Number(bodyRecord.durationHours || 1);
+  const durationHours = Number.isFinite(rawDurationHours) ? rawDurationHours : 1;
+  if (!isValidRentalDuration(durationHours)) {
+    return c.json({ error: "Invalid duration" }, 400);
+  }
+
+  const protocol = "vless-reality";
+  const tier = getRentalPrice(durationHours);
+  if (!tier) {
+    return c.json({ error: "Invalid duration" }, 400);
+  }
+
+  const activeRental = await db.select({ id: rentals.id }).from(rentals)
+    .where(and(
+      eq(rentals.userId, userId),
+      or(eq(rentals.status, "provisioning"), eq(rentals.status, "active"), eq(rentals.status, "paused"))
+    ))
+    .limit(1);
+  if (activeRental.length > 0) {
+    return c.json({
+      error: "An existing connection is already running or being prepared.",
+      code: "ACTIVE_RENTAL_EXISTS",
+      rentalId: activeRental[0].id,
+    }, 409);
+  }
+
+  const available = await getWalletAvailableBalance(userId);
+  const minimumBalance = Math.max(0.01, Math.round((tier.pricePerHour / 12) * 100) / 100);
+  if (available < minimumBalance) {
+    return c.json({
+      error: "Wallet balance is too low to start a one-click connection.",
+      code: "WALLET_BALANCE_LOW",
+      balance: available,
+      required: minimumBalance,
+    }, 402);
+  }
+
+  const complianceResult = await resolveComplianceProfile(STRICT_COMPLIANCE_PROFILE_ID);
+  if (!complianceResult.ok) {
+    return c.json({ error: complianceResult.error }, toHttpStatus(complianceResult.status));
+  }
+  const complianceCheck = validateProtocolForCompliance(protocol, complianceResult.profile);
+  if (!complianceCheck.ok) {
+    return c.json({ error: complianceCheck.error }, 409);
+  }
+
+  const runtimeCatalog = getCatalogRuntimeConfig();
+  const requestedRegion = typeof bodyRecord.regionPreference === "string" && isValidProviderRegionId(bodyRecord.regionPreference.trim())
+    ? bodyRecord.regionPreference.trim()
+    : runtimeCatalog.region;
+  const region = selectProvisionRegion({
+    preferredRegion: requestedRegion,
+    attemptNo: 1,
+    autoRecovery: true,
+    excludedRegions: normalizeRegionList(bodyRecord.excludedRegions),
+  });
+  const rentalId = randomUUID();
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + durationHours);
+
+  await Promise.all([ensureRentalPlacementSchema(), ensureComplianceSchema()]);
+  await db.insert(rentals).values({
+    id: rentalId,
+    userId,
+    protocol,
+    status: "provisioning",
+    provider: runtimeCatalog.provider,
+    region,
+    plan: runtimeCatalog.plan,
+    durationHours,
+    pricePerHour: tier.pricePerHour,
+    totalPrice: tier.totalPrice,
+    paymentMethod: "wallet",
+    paymentStatus: "paid",
+    complianceProfileId: complianceResult.profile.id,
+    compliancePolicyVersion: complianceResult.profile.version,
+    complianceEnforcedAt: new Date(),
+    expiresAt,
+  });
+
+  const paymentId = randomUUID();
+  await db.insert(payments).values({
+    id: paymentId,
+    rentalId,
+    userId,
+    amount: tier.totalPrice,
+    currency: "usd",
+    method: "wallet",
+    status: "completed",
+  });
+  await db.insert(auditLog).values({
+    rentalId,
+    action: "quick_connect_created",
+    detail: JSON.stringify({
+      protocol,
+      durationHours,
+      provider: runtimeCatalog.provider,
+      region,
+      plan: runtimeCatalog.plan,
+      compliance: `${complianceResult.profile.id}@${complianceResult.profile.version}`,
+      autoRecovery: true,
+    }).slice(0, 500),
+  });
+  await recordStructuredAudit(c, {
+    eventType: "quick_connect_created",
+    rentalId,
+    payload: {
+      protocol,
+      durationHours,
+      provider: runtimeCatalog.provider,
+      region,
+      plan: runtimeCatalog.plan,
+      complianceProfileId: complianceResult.profile.id,
+      compliancePolicyVersion: complianceResult.profile.version,
+      autoRecovery: true,
+    },
+  });
+
+  await addProvisionJob({
+    rentalId,
+    protocol,
+    durationHours,
+    provider: runtimeCatalog.provider,
+    region,
+    plan: runtimeCatalog.plan,
+    autoRecovery: true,
+  });
+
+  return c.json({
+    ...getPublicRentalStatusPayload({
+      id: rentalId,
+      status: "provisioning",
+      region,
+      attemptCount: 0,
+    }),
+    totalPrice: tier.totalPrice,
+    billingMode: "wallet_tick",
+    pollUrl: `/api/rental/${rentalId}/progress`,
   });
 });
 
@@ -1937,6 +2245,9 @@ app.post("/api/rental", verifyAuth, async (c) => {
   const rawDurationHours = Number(bodyRecord.durationHours);
   const durationHours = Number.isFinite(rawDurationHours) ? rawDurationHours : null;
 
+  if (!isProtocolAllowedForRelease(protocol)) {
+    return c.json({ error: "Invalid protocol" }, 400);
+  }
   if (!protocol || durationHours === null || paymentMethod !== "wallet") {
     return c.json({
       error: "Rental checkout now accepts wallet balance only. Use the wallet topup page for Stripe, wallet, or X402 recharge.",
@@ -1984,6 +2295,11 @@ app.post("/api/rental", verifyAuth, async (c) => {
 
   const rentalId = randomUUID();
   const catalog = getCatalogRuntimeConfig();
+  const region = selectProvisionRegion({
+    preferredRegion: catalog.region,
+    attemptNo: 1,
+    autoRecovery: true,
+  });
 
   // Calculate expiration
   const expiresAt = new Date();
@@ -1996,7 +2312,7 @@ app.post("/api/rental", verifyAuth, async (c) => {
     protocol,
     status: "provisioning",
     provider: catalog.provider,
-    region: catalog.region,
+    region,
     plan: catalog.plan,
     durationHours,
     pricePerHour: tier.pricePerHour,
@@ -2040,7 +2356,15 @@ app.post("/api/rental", verifyAuth, async (c) => {
   });
 
   // Queue provision
-  await addProvisionJob({ rentalId, protocol, durationHours });
+  await addProvisionJob({
+    rentalId,
+    protocol,
+    durationHours,
+    provider: catalog.provider,
+    region,
+    plan: catalog.plan,
+    autoRecovery: true,
+  });
 
   return c.json({
     rentalId,
@@ -2113,7 +2437,7 @@ app.get("/api/rental/:id", verifyAuth, async (c) => {
   const remainingMs = expiresAt ? expiresAt.getTime() - now.getTime() : 0;
   const remainingMinutes = Math.max(0, Math.floor(remainingMs / 60000));
 
-  return c.json({ ...rental[0], remainingMinutes, expiresAt: expiresAt?.toISOString() });
+  return c.json(formatPublicRentalDetails(rental[0], remainingMinutes));
 });
 
 app.get("/api/rental/:id/progress", verifyAuth, async (c) => {
@@ -2138,10 +2462,20 @@ app.get("/api/rental/:id/progress", verifyAuth, async (c) => {
     .orderBy(desc(auditLog.createdAt))
     .limit(50);
 
-  return c.json(buildRentalProgressPayload(
+  const progress = buildRentalProgressPayload(
     rental[0],
     recentStageEntries.map((entry) => parseStageAuditEntry(entry)),
-  ));
+  );
+  const userStatus = getUserStatus({ status: rental[0].status, lastStage: rental[0].lastStage });
+
+  return c.json({
+    ...progress,
+    userStatus,
+    userMessage: getUserStatusMessage(userStatus),
+    stage: userStatus,
+    message: getUserStatusMessage(userStatus),
+    stageLogs: [],
+  });
 });
 
 app.get("/api/rental/:id/probes", verifyAuth, async (c) => {
@@ -2152,6 +2486,7 @@ app.get("/api/rental/:id/probes", verifyAuth, async (c) => {
     id: rentals.id,
     userId: rentals.userId,
     status: rentals.status,
+    lastStage: rentals.lastStage,
     ip: rentals.ip,
     vpsId: rentals.vpsId,
   }).from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))).limit(1);
@@ -2176,10 +2511,20 @@ app.get("/api/rental/:id/probes", verifyAuth, async (c) => {
     .orderBy(desc(auditLog.createdAt))
     .limit(100);
 
-  return c.json(buildRentalProbePayload(
+  const probePayload = buildRentalProbePayload(
     rental[0],
     recentProbeStageEntries.map((entry) => parseStageAuditEntry(entry)),
-  ));
+  );
+  const userStatus = getUserStatus({ status: rental[0].status, lastStage: rental[0].lastStage });
+  return c.json({
+    rentalId,
+    status: rental[0].status,
+    userStatus,
+    userMessage: getUserStatusMessage(userStatus),
+    probeStatus: probePayload.current?.status || "unknown",
+    decision: probePayload.summary.latestDecision,
+    lastRunAt: probePayload.current?.lastEventAt || null,
+  });
 });
 
 app.get("/api/rental/:id/billing", verifyAuth, async (c) => {
@@ -2247,6 +2592,134 @@ app.get("/api/rental/:id/config", verifyAuth, async (c) => {
     return c.json(validation.config);
   } catch {
     return c.json({ error: "Deployment is not ready yet." }, 409);
+  }
+});
+
+app.get("/api/rental/:id/connection-profile", verifyAuth, async (c) => {
+  const userId = c.get("userId");
+  const rentalId = c.req.param("id");
+
+  const rental = await db.select().from(rentals).where(and(eq(rentals.id, rentalId), eq(rentals.userId, userId))).limit(1);
+  if (rental.length === 0) {
+    return c.json({ error: "Rental not found" }, 404);
+  }
+
+  const userStatus = getUserStatus({ status: rental[0].status, lastStage: rental[0].lastStage });
+  if (rental[0].status === "provisioning") {
+    return c.json({
+      ...getPublicRentalStatusPayload({
+        id: rental[0].id,
+        status: rental[0].status,
+        lastStage: rental[0].lastStage,
+        region: rental[0].region,
+        attemptCount: rental[0].attemptCount,
+      }),
+      ready: false,
+    }, 202);
+  }
+  if (rental[0].status !== "active") {
+    return c.json({
+      error: getUserStatusMessage(userStatus),
+      userStatus,
+      ready: false,
+    }, 409);
+  }
+
+  const config = await redis.get(`rental:${rentalId}:config`);
+  if (!config) {
+    return c.json({
+      ready: false,
+      userStatus: "configuring",
+      userMessage: getUserStatusMessage("configuring"),
+    }, 202);
+  }
+
+  try {
+    const parsed = JSON.parse(config);
+    const validation = normalizeProvisionedConfig(parsed);
+    if (!validation.ok) {
+      return c.json({
+        ready: false,
+        userStatus: "configuring",
+        userMessage: getUserStatusMessage("configuring"),
+      }, 202);
+    }
+
+    if (validation.config.protocol !== "vless-reality") {
+      return c.json({ error: "Connection profile is only available for VLESS Reality nodes" }, 409);
+    }
+
+    const xrayConfig = {
+      log: { loglevel: "warning" },
+      inbounds: [{
+        tag: "socks-in",
+        listen: "127.0.0.1",
+        port: 10808,
+        protocol: "socks",
+        settings: { udp: true },
+      }],
+      outbounds: [{
+        tag: "proxy",
+        protocol: "vless",
+        settings: {
+          vnext: [{
+            address: validation.config.ip,
+            port: validation.config.port,
+            users: [{
+              id: validation.config.uuid,
+              encryption: "none",
+              flow: "xtls-rprx-vision",
+            }],
+          }],
+        },
+        streamSettings: {
+          network: "tcp",
+          security: "reality",
+          realitySettings: {
+            fingerprint: "chrome",
+            serverName: validation.config.serverName,
+            publicKey: validation.config.publicKey,
+            shortId: validation.config.shortId,
+            spiderX: "/",
+          },
+        },
+      }],
+    };
+
+    await recordStructuredAudit(c, {
+      eventType: "connection_profile_issued",
+      rentalId,
+      payload: {
+        protocol: validation.config.protocol,
+        region: rental[0].region || null,
+        client: "app",
+      },
+    });
+
+    return c.json({
+      ready: true,
+      userStatus: "ready",
+      userMessage: getUserStatusMessage("ready"),
+      rentalId,
+      region: rental[0].region || null,
+      expiresAt: rental[0].expiresAt?.toISOString() || null,
+      profileVersion: rental[0].compliancePolicyVersion || null,
+      connection: validation.config,
+      app: {
+        core: "xray",
+        systemProxy: {
+          socksHost: "127.0.0.1",
+          socksPort: 10808,
+        },
+        xrayConfig,
+      },
+    });
+  } catch {
+    return c.json({
+      ready: false,
+      userStatus: "configuring",
+      userMessage: getUserStatusMessage("configuring"),
+    }, 202);
   }
 });
 
@@ -2327,7 +2800,7 @@ if (stripe) {
     if (!protocol || !durationHours || !email) {
       return c.json({ error: "Missing required fields" }, 400);
     }
-    if (!["vless-reality", "hysteria2"].includes(protocol)) {
+    if (!isProtocolAllowedForRelease(protocol)) {
       return c.json({ error: "Invalid protocol" }, 400);
     }
 
@@ -2479,6 +2952,9 @@ if (stripe) {
         if (!protocol || !durationHours || !email) {
           return c.json({ error: "Missing metadata" }, 400);
         }
+        if (!isProtocolAllowedForRelease(protocol)) {
+          return c.json({ error: "Invalid protocol" }, 400);
+        }
 
         const rentalId = randomUUID();
 
@@ -2498,9 +2974,15 @@ if (stripe) {
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + duration);
         const runtimeCatalog = getCatalogRuntimeConfig();
+        const preferredRegion = session.metadata?.region || runtimeCatalog.region;
+        const selectedRegion = selectProvisionRegion({
+          preferredRegion,
+          attemptNo: 1,
+          autoRecovery: true,
+        });
         const placement = {
           provider: session.metadata?.provider || runtimeCatalog.provider,
-          region: session.metadata?.region || runtimeCatalog.region,
+          region: selectedRegion,
           plan: session.metadata?.plan || runtimeCatalog.plan,
         };
 
@@ -2547,7 +3029,15 @@ if (stripe) {
         });
 
         // Queue provision
-        await addProvisionJob({ rentalId, protocol, durationHours: duration });
+        await addProvisionJob({
+          rentalId,
+          protocol,
+          durationHours: duration,
+          provider: placement.provider,
+          region: placement.region,
+          plan: placement.plan,
+          autoRecovery: true,
+        });
         await appendAuditEvent({
           traceId: `stripe:${session.id}`,
           actorType: "system",
@@ -2703,7 +3193,7 @@ app.post("/api/redeem", verifyAuth, async (c) => {
     return c.json({ error: "Invalid code format" }, 400);
   }
 
-  if (!protocol || !["vless-reality", "hysteria2"].includes(protocol)) {
+  if (!isProtocolAllowedForRelease(protocol)) {
     return c.json({ error: "Invalid protocol" }, 400);
   }
 
@@ -2757,6 +3247,11 @@ app.post("/api/redeem", verifyAuth, async (c) => {
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + durationHours);
   const catalog = getCatalogRuntimeConfig();
+  const region = selectProvisionRegion({
+    preferredRegion: catalog.region,
+    attemptNo: 1,
+    autoRecovery: true,
+  });
 
   await Promise.all([ensureRentalPlacementSchema(), ensureComplianceSchema()]);
   await db.insert(rentals).values({
@@ -2765,7 +3260,7 @@ app.post("/api/redeem", verifyAuth, async (c) => {
     protocol,
     status: "provisioning",
     provider: catalog.provider,
-    region: catalog.region,
+    region,
     plan: catalog.plan,
     durationHours,
     pricePerHour: 0,
@@ -2807,7 +3302,15 @@ app.post("/api/redeem", verifyAuth, async (c) => {
     },
   });
 
-  await addProvisionJob({ rentalId, protocol, durationHours });
+  await addProvisionJob({
+    rentalId,
+    protocol,
+    durationHours,
+    provider: catalog.provider,
+    region,
+    plan: catalog.plan,
+    autoRecovery: true,
+  });
 
   return c.json({ rentalId, durationHours, status: "provisioning" });
 });
@@ -5252,6 +5755,9 @@ app.post("/api/admin/debug/provision-test", async (c) => {
 
   const body = await c.req.json().catch(() => ({})) as { protocol?: string; durationHours?: number };
   const protocol = body.protocol === "hysteria2" ? "hysteria2" : "vless-reality";
+  if (!isProtocolAllowedForRelease(protocol)) {
+    return c.json({ error: "Invalid protocol" }, 400);
+  }
   const durationHours = Number.isFinite(body.durationHours) && body.durationHours && body.durationHours > 0
     ? Math.min(24, Math.max(1, Math.floor(body.durationHours)))
     : 1;
@@ -5385,6 +5891,23 @@ function consoleRemainingMinutes(expiresAt: Date | string | null | undefined, st
   return Math.max(0, Math.floor((time - Date.now()) / 60000));
 }
 
+function formatConsoleAuditEntry(entry: {
+  id: number;
+  rentalId: string | null;
+  action: string;
+  detail: string | null;
+  createdAt: Date | string | null;
+}) {
+  const isProvisionStage = entry.action === "provision_stage";
+  return {
+    id: entry.id,
+    rentalId: entry.rentalId,
+    action: isProvisionStage ? "connection_delivery" : entry.action,
+    detail: isProvisionStage ? "System updated connection delivery automatically." : entry.detail,
+    createdAt: consoleToIso(entry.createdAt),
+  };
+}
+
 app.get("/api/console/overview", verifyAuth, async (c) => {
   const userId = c.get("userId");
   await ensureWalletSchema();
@@ -5448,13 +5971,7 @@ app.get("/api/console/overview", verifyAuth, async (c) => {
       status: payment.status || "completed",
       createdAt: consoleToIso(payment.createdAt),
     })),
-    recentAuditEntries: recentAuditEntries.map((entry) => ({
-      id: entry.id,
-      rentalId: entry.rentalId,
-      action: entry.action,
-      detail: entry.detail,
-      createdAt: consoleToIso(entry.createdAt),
-    })),
+    recentAuditEntries: recentAuditEntries.map(formatConsoleAuditEntry),
   });
 });
 
@@ -5576,13 +6093,7 @@ app.get("/api/console/audit", verifyAuth, async (c) => {
   const complianceStatMap = new Map(complianceStatRows.map((stat) => [stat.rentalId, stat]));
 
   return c.json({
-    auditEntries: recentAuditEntries.map((entry) => ({
-      id: entry.id,
-      rentalId: entry.rentalId,
-      action: entry.action,
-      detail: entry.detail,
-      createdAt: consoleToIso(entry.createdAt),
-    })),
+    auditEntries: recentAuditEntries.map(formatConsoleAuditEntry),
     compliance: {
       status: "active",
       message: "Compliance profiles are stored on rentals and enforced before provisioning.",
@@ -5731,7 +6242,19 @@ setInterval(() => {
 // Provision Worker
 // ============================================================
 const provisionWorker = createProvisionWorker(async (job) => {
-  const { rentalId, protocol, durationHours, action, vpsId, ip } = job.data;
+  const {
+    rentalId,
+    protocol,
+    durationHours,
+    action,
+    vpsId,
+    ip,
+    provider: jobProvider,
+    region: jobRegion,
+    plan: jobPlan,
+    excludedRegions,
+    autoRecovery,
+  } = job.data;
 
   if (action === "destroy") {
     console.log("Destroying rental:", rentalId, "vps:", vpsId, "ip:", ip);
@@ -5763,6 +6286,9 @@ const provisionWorker = createProvisionWorker(async (job) => {
   }
 
   // Provision
+  if (!isProtocolAllowedForRelease(protocol)) {
+    throw new Error("Invalid protocol");
+  }
   console.log("Provisioning rental:", rentalId, "protocol:", protocol);
 
   await ensureRentalPlacementSchema();
@@ -5785,10 +6311,18 @@ const provisionWorker = createProvisionWorker(async (job) => {
   const attemptNo = getProvisionAttemptNo(job);
   const maxAttempts = getProvisionMaxAttempts(job);
   const runtimeCatalog = getCatalogRuntimeConfig();
+  const autoRecoveryEnabled = autoRecovery !== false;
+  const preferredRegion = jobRegion || provisionTarget[0].region || runtimeCatalog.region || "nrt";
+  const selectedRegion = selectProvisionRegion({
+    preferredRegion,
+    attemptNo,
+    autoRecovery: autoRecoveryEnabled,
+    excludedRegions: normalizeRegionList(excludedRegions),
+  });
   const catalog = {
-    provider: provisionTarget[0].provider || runtimeCatalog.provider,
-    region: provisionTarget[0].region || runtimeCatalog.region,
-    plan: provisionTarget[0].plan || runtimeCatalog.plan,
+    provider: jobProvider || provisionTarget[0].provider || runtimeCatalog.provider,
+    region: selectedRegion,
+    plan: jobPlan || provisionTarget[0].plan || runtimeCatalog.plan,
   };
   const complianceResult = await resolveComplianceProfile(provisionTarget[0].complianceProfileId);
   if (!complianceResult.ok) {
@@ -5832,6 +6366,10 @@ const provisionWorker = createProvisionWorker(async (job) => {
       attemptId: attempt.attemptId,
       attempt: attempt.attemptNo,
       maxAttempts: attempt.maxAttempts,
+      provider: catalog.provider,
+      region: catalog.region,
+      plan: catalog.plan,
+      autoRecovery: autoRecoveryEnabled,
       complianceProfileId: complianceResult.profile.id,
       compliancePolicyVersion: provisionTarget[0].compliancePolicyVersion || complianceResult.profile.version,
     },
@@ -5844,6 +6382,9 @@ const provisionWorker = createProvisionWorker(async (job) => {
       attemptId: attempt.attemptId,
       attemptNo: attempt.attemptNo,
       maxAttempts: attempt.maxAttempts,
+      provider: catalog.provider,
+      region: catalog.region,
+      plan: catalog.plan,
       compliancePolicy: buildCompliancePolicyPayload(complianceResult.profile),
     });
     const provisionBody = await readProvisionServerResponse(provisionResult);

@@ -401,7 +401,7 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
         header={(
           <div className="flex min-h-14 flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-950 text-white shadow-lg">
+              <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-950 text-white shadow-lg">
                 <LayoutDashboard className="h-4 w-4" />
               </div>
               <div>
@@ -426,42 +426,48 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
       header={(
         <div className="flex min-h-14 flex-wrap items-center justify-between gap-4">
           <button onClick={() => router.push("/console")} className="flex items-center gap-3 text-left">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-950 text-white shadow-lg">
+            <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-950 text-white shadow-lg">
               <LayoutDashboard className="h-4 w-4" />
             </div>
             <div>
               <div className="text-lg font-semibold leading-none">AnixOps Console</div>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span>{email || "Account"}</span>
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+                <span className="h-1 w-1 rounded-md bg-muted-foreground/40" />
                 <span>{activeConfig.title}</span>
               </div>
             </div>
           </button>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="gap-1.5 rounded-full px-3 py-1">
+            <Badge variant="outline" className="gap-1.5 rounded-md px-3 py-1">
               <ActiveIcon className="h-3.5 w-3.5" />
               {activeConfig.label}
             </Badge>
-            <Button variant="outline" size="sm" onClick={() => router.push("/")}>
-              <Home className="h-4 w-4" />
-              Home
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => router.push("/payments")}>
-              <ScrollText className="h-4 w-4" />
-              Payments
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                logout();
-                router.push("/");
-              }}
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </Button>
+            <details className="rounded-md border border-border bg-card px-3 py-1 text-sm">
+              <summary className="cursor-pointer font-medium">Account</summary>
+              <div className="mt-3 grid min-w-36 gap-2 pb-2">
+                <Button variant="outline" size="sm" onClick={() => router.push("/")} className="justify-start">
+                  <Home className="h-4 w-4" />
+                  Home
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => router.push("/payments")} className="justify-start">
+                  <ScrollText className="h-4 w-4" />
+                  Payments
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    logout();
+                    router.push("/");
+                  }}
+                  className="justify-start"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </Button>
+              </div>
+            </details>
           </div>
         </div>
       )}
@@ -470,7 +476,7 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="gap-1.5 rounded-full px-3 py-1">
+              <Badge variant="outline" className="gap-1.5 rounded-md px-3 py-1">
                 <ActiveIcon className="h-3.5 w-3.5" />
                 {activeConfig.label}
               </Badge>
@@ -491,9 +497,9 @@ export function ConsoleHub({ view }: { view: ConsoleView }) {
             router.push(nextView === "overview" ? "/console" : `/console/${nextView}`);
           }}
         >
-          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-[1.15rem] border border-border bg-card/90 p-1.5 shadow-sm">
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-border bg-card/90 p-1.5 shadow-sm">
             {navItems.map(([key, item]) => (
-              <TabsTrigger key={key} value={key} className="gap-2 rounded-xl px-3.5 py-2.5">
+              <TabsTrigger key={key} value={key} className="gap-2 rounded-md px-3.5 py-2.5">
                 <item.icon className="h-4 w-4" />
                 <span>{item.label}</span>
               </TabsTrigger>
@@ -834,7 +840,7 @@ function WalletTopupPanel({
   ];
 
   return (
-    <Card className="space-y-4 border-black/5 bg-white/90 p-5 shadow-sm">
+    <Card className="space-y-4 border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
@@ -845,21 +851,21 @@ function WalletTopupPanel({
           </div>
           <div className="mt-1 text-sm leading-6 text-muted-foreground">
             {isZh
-              ? "Stripe、钱包支付和 X402 都会给同一钱包余额入账，但系统会保留各自的 rail。"
-              : "Stripe, wallet payment, and X402 all fund the same wallet balance, but each rail stays distinct in records."}
+              ? "默认使用 Stripe；需要链上方式时再展开高级选项。"
+              : "Stripe is the default; expand advanced options only when you need on-chain rails."}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="rounded-full px-3">
+          <Badge variant="outline" className="rounded-md px-3">
             {chainMode?.environment || "local"}
           </Badge>
-          <Badge variant={canUseChainTopups ? "default" : "destructive"} className="rounded-full px-3">
+          <Badge variant={canUseChainTopups ? "default" : "destructive"} className="rounded-md px-3">
             {canUseChainTopups ? "chain access ok" : "allowlist only"}
           </Badge>
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[160px_1fr]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
           <Label>{isZh ? "金额 (USD)" : "Amount (USD)"}</Label>
           <Input
@@ -873,12 +879,19 @@ function WalletTopupPanel({
               setMessage(null);
               setCreatedTopup(null);
             }}
-            className="mt-1 h-12 rounded-[1.15rem]"
+            className="mt-1 h-12 rounded-lg"
           />
         </div>
+        <Badge variant="outline" className="h-11 justify-center rounded-md px-4">
+          {formatTopupRailLabel(rail, isZh)}
+        </Badge>
+      </div>
 
-        <div className="space-y-2">
-          <Label>{isZh ? "充值方式" : "Topup method"}</Label>
+      <details className="rounded-lg border border-border bg-card px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold">
+          {isZh ? "高级充值方式" : "Advanced topup methods"}
+        </summary>
+        <div className="mt-4 space-y-3">
           <div className="grid gap-2 sm:grid-cols-3">
             {topupRailButtons.map((item) => {
               const active = rail === item.rail;
@@ -897,7 +910,7 @@ function WalletTopupPanel({
                     <div className="font-semibold">
                       {formatTopupRailLabel(item.rail, isZh)}
                     </div>
-                    <Badge variant={active ? "default" : "outline"} className="rounded-full px-2 py-0.5 text-[10px]">
+                    <Badge variant={active ? "default" : "outline"} className="rounded-md px-2 py-0.5 text-[10px]">
                       {active ? (isZh ? "已选" : "selected") : (isZh ? "切换" : "switch")}
                     </Badge>
                   </div>
@@ -909,14 +922,14 @@ function WalletTopupPanel({
             })}
           </div>
           {!canUseChainTopups && (
-            <div className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-900">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-900">
               {isZh
                 ? "当前测试服只对白名单邮箱开放链上充值，钱包支付和 X402 通道都会被限制。"
                 : "Chain topups are limited to allowlisted emails on this test build. Wallet and X402 rails remain locked."}
             </div>
           )}
         </div>
-      </div>
+      </details>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-6 text-muted-foreground">
@@ -938,13 +951,13 @@ function WalletTopupPanel({
       </div>
 
       {message && (
-        <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-muted-foreground">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-muted-foreground">
           {message}
         </div>
       )}
 
       {createdTopup && (
-        <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
@@ -955,10 +968,10 @@ function WalletTopupPanel({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={statusVariant(createdTopup.status)} className="rounded-full px-3">
+              <Badge variant={statusVariant(createdTopup.status)} className="rounded-md px-3">
                 {getCryptoTopupStatusLabel(createdTopup.status, isZh)}
               </Badge>
-              <Badge variant="outline" className="rounded-full px-3">
+              <Badge variant="outline" className="rounded-md px-3">
                 {formatTopupRailLabel(createdTopup.rail, isZh)}
               </Badge>
               <Button variant="outline" size="sm" onClick={() => void refreshCreatedTopup()} disabled={refreshingTopup}>
@@ -985,9 +998,9 @@ function WalletTopupPanel({
                 body: isZh ? "链上确认后刷新状态；余额列表若未更新，再点一次页面刷新。" : "Wait for confirmations, then refresh the status. If the balance list still lags, use the page refresh button.",
               },
             ].map((item) => (
-              <div key={item.step} className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+              <div key={item.step} className="rounded-lg border border-slate-200 bg-white px-4 py-4">
                 <div className="flex items-center gap-3">
-                  <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-950 text-xs font-semibold text-white">
+                  <div className="grid h-8 w-8 place-items-center rounded-md bg-slate-950 text-xs font-semibold text-white">
                     {item.step}
                   </div>
                   <div className="font-medium">{item.title}</div>
@@ -998,7 +1011,7 @@ function WalletTopupPanel({
           </div>
 
           <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-4">
               <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
                 {isZh ? "精确到账金额" : "Exact amount"}
               </div>
@@ -1013,7 +1026,7 @@ function WalletTopupPanel({
               </div>
             </div>
 
-            <div className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-4">
               <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
                 {isZh ? "状态" : "Status"}
               </div>
@@ -1035,7 +1048,7 @@ function WalletTopupPanel({
             </div>
           </div>
 
-          <div className="mt-4 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
@@ -1049,13 +1062,13 @@ function WalletTopupPanel({
                 {copiedField === "address" ? (isZh ? "已复制" : "Copied") : (isZh ? "复制地址" : "Copy address")}
               </Button>
             </div>
-            <div className="mt-3 break-all rounded-[1.1rem] bg-slate-50 px-3 py-3 font-mono text-xs text-foreground">
+            <div className="mt-3 break-all rounded-lg bg-slate-50 px-3 py-3 font-mono text-xs text-foreground">
               {createdTopup.address}
             </div>
           </div>
 
           {createdTopup.txHash && (
-            <div className="mt-4 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4">
+            <div className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
@@ -1069,7 +1082,7 @@ function WalletTopupPanel({
                   {copiedField === "txHash" ? (isZh ? "已复制" : "Copied") : (isZh ? "复制哈希" : "Copy hash")}
                 </Button>
               </div>
-              <div className="mt-3 break-all rounded-[1.1rem] bg-slate-50 px-3 py-3 font-mono text-xs text-foreground">
+              <div className="mt-3 break-all rounded-lg bg-slate-50 px-3 py-3 font-mono text-xs text-foreground">
                 {createdTopup.txHash}
               </div>
             </div>
@@ -1410,7 +1423,7 @@ function WalletCdkRedeemPanel({ onReload }: { onReload?: () => Promise<void> | v
   };
 
   return (
-    <Card className="space-y-4 border-black/5 bg-white/90 p-5 shadow-sm">
+    <Card className="space-y-4 border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
@@ -1425,12 +1438,12 @@ function WalletCdkRedeemPanel({ onReload }: { onReload?: () => Promise<void> | v
               : "Single-use CDKs belong in the rental flow, where they create a prepaid rental directly."}
           </div>
         </div>
-        <Badge variant="default" className="rounded-full px-3">
+        <Badge variant="default" className="rounded-md px-3">
           {isZh ? "余额入账" : "Wallet credit"}
         </Badge>
       </div>
 
-      <div className="rounded-[1.2rem] border border-slate-200/70 bg-slate-50/85 px-4 py-3 text-sm leading-6 text-muted-foreground">
+      <div className="rounded-lg border border-slate-200/70 bg-slate-50/85 px-4 py-3 text-sm leading-6 text-muted-foreground">
         {isZh
           ? "先验证 CDK 类型，再兑换到钱包。余额型和单次型会显示不同的提示，避免走错入口。"
           : "Validate the code type first, then credit the wallet. Balance and single-use CDKs surface different hints so you do not enter the wrong flow."}
@@ -1442,7 +1455,7 @@ function WalletCdkRedeemPanel({ onReload }: { onReload?: () => Promise<void> | v
           value={code}
           onChange={(event) => setCode(event.target.value.toUpperCase())}
           placeholder={isZh ? "输入余额型 CDK" : "Enter balance CDK"}
-          className="h-12 rounded-[1.1rem] uppercase"
+          className="h-12 rounded-lg uppercase"
         />
         <Button variant="outline" onClick={validateCode} disabled={validating || code.trim().length < 6} className="h-12 px-5">
           {validating ? (isZh ? "验证中..." : "Validating...") : (isZh ? "验证" : "Validate")}
@@ -1454,16 +1467,16 @@ function WalletCdkRedeemPanel({ onReload }: { onReload?: () => Promise<void> | v
 
       {(validatedType || walletAmount !== null || durationHours !== null) && (
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={validatedType === "wallet" ? "default" : "secondary"} className="rounded-full px-3">
+          <Badge variant={validatedType === "wallet" ? "default" : "secondary"} className="rounded-md px-3">
             {validatedType ? formatRedeemCodeTypeLabel(validatedType, isZh) : (isZh ? "未校验" : "Unvalidated")}
           </Badge>
           {walletAmount !== null && (
-            <Badge variant="outline" className="rounded-full px-3">
+            <Badge variant="outline" className="rounded-md px-3">
               {isZh ? `余额 $${walletAmount.toFixed(2)}` : `Wallet amount $${walletAmount.toFixed(2)}`}
             </Badge>
           )}
           {durationHours !== null && (
-            <Badge variant="outline" className="rounded-full px-3">
+            <Badge variant="outline" className="rounded-md px-3">
               {isZh ? `${durationHours} 小时` : `${durationHours}h`}
             </Badge>
           )}
@@ -1471,7 +1484,7 @@ function WalletCdkRedeemPanel({ onReload }: { onReload?: () => Promise<void> | v
       )}
 
       {message && (
-        <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-muted-foreground">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-muted-foreground">
           {message}
         </div>
       )}
@@ -1562,7 +1575,7 @@ function CheckoutGroups({ entries }: { entries: WalletEntry[] }) {
       <div className="space-y-4 p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {sections.map((section) => (
-            <div key={section.key} className="rounded-2xl border border-black/5 bg-white/95 p-4">
+            <div key={section.key} className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="font-medium">{section.title}</div>

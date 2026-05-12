@@ -3,6 +3,7 @@ import { ProvisionStageError, StageRecorder, type ProvisionStageLog } from "./st
 
 export type ProbeMode = "disabled" | "external" | "local";
 export type ProbeDecision = "pass" | "fail" | "skipped";
+export type ProbeFailureReason = "blocked" | "service_error" | "timeout" | "transient" | "disabled";
 
 export interface ConnectivityProbeConfig {
   enabled: boolean;
@@ -29,6 +30,7 @@ export interface ConnectivityProbeInput {
 export interface ConnectivityProbeResult {
   decision: ProbeDecision;
   mode: ProbeMode;
+  reason?: ProbeFailureReason;
   probeRunId?: string;
   completedNodes?: number;
   requiredNodes?: number;
@@ -107,13 +109,27 @@ function numberOrUndefined(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function classifyProbeFailure(detail: string | undefined, fallback: ProbeFailureReason = "transient"): ProbeFailureReason {
+  const normalized = String(detail || "").toLowerCase();
+  if (normalized.includes("polling timed out") || normalized.includes("timeout") || normalized.includes("timed out")) {
+    return "timeout";
+  }
+  if (normalized.includes("blocked") || normalized.includes("reject") || normalized.includes("mainland")) {
+    return "blocked";
+  }
+  if (normalized.includes("service") || normalized.includes("http") || normalized.includes("status failed") || normalized.includes("create failed")) {
+    return "service_error";
+  }
+  return fallback;
+}
+
 async function runExternalProbe(
   input: ConnectivityProbeInput,
   config: ConnectivityProbeConfig,
   fetchImpl: FetchLike,
 ): Promise<ConnectivityProbeResult> {
   if (!config.serviceUrl) {
-    return { decision: "fail", mode: "external", detail: "Probe service URL is not configured" };
+    return { decision: "fail", mode: "external", reason: "service_error", detail: "Probe service URL is not configured" };
   }
 
   const baseUrl = config.serviceUrl.replace(/\/+$/, "");
@@ -141,6 +157,7 @@ async function runExternalProbe(
     return {
       decision: "fail",
       mode: "external",
+      reason: "service_error",
       detail: `Probe service create failed: ${createRes.status}: ${String(created.error || created.detail || "unknown")}`,
     };
   }
@@ -151,7 +168,7 @@ async function runExternalProbe(
       ? created.id
       : "";
   if (!probeRunId) {
-    return { decision: "fail", mode: "external", detail: "Probe service did not return probeRunId" };
+    return { decision: "fail", mode: "external", reason: "service_error", detail: "Probe service did not return probeRunId" };
   }
 
   for (let i = 0; i < config.maxPolls; i++) {
@@ -164,6 +181,7 @@ async function runExternalProbe(
       return {
         decision: "fail",
         mode: "external",
+        reason: "service_error",
         probeRunId,
         detail: `Probe service status failed: ${statusRes.status}: ${String(statusBody.error || statusBody.detail || "unknown")}`,
       };
@@ -177,6 +195,9 @@ async function runExternalProbe(
       return {
         decision: finalDecision,
         mode: "external",
+        ...(finalDecision === "fail"
+          ? { reason: classifyProbeFailure(typeof statusBody.detail === "string" ? statusBody.detail : undefined) }
+          : {}),
         probeRunId,
         completedNodes: numberOrUndefined(statusBody.completedNodes),
         requiredNodes: numberOrUndefined(statusBody.requiredNodes) ?? config.minNodes,
@@ -188,7 +209,7 @@ async function runExternalProbe(
     await sleep(config.pollIntervalMs);
   }
 
-  return { decision: "fail", mode: "external", probeRunId, detail: "Probe service polling timed out" };
+  return { decision: "fail", mode: "external", reason: "timeout", probeRunId, detail: "Probe service polling timed out" };
 }
 
 export async function localTcpProbe(host: string, port: number, timeoutMs: number): Promise<{ ok: boolean; latencyMs?: number; detail?: string }> {
@@ -232,6 +253,7 @@ export async function runConnectivityProbe(
   return {
     decision: result.ok ? "pass" : "fail",
     mode: "local",
+    ...(!result.ok ? { reason: classifyProbeFailure(result.detail) } : {}),
     completedNodes: 1,
     requiredNodes: 1,
     passRatio: result.ok ? 1 : 0,
@@ -283,6 +305,7 @@ export async function verifyDeliveryConnectivity(
     requiredNodes: result.requiredNodes || null,
     passRatio: result.passRatio ?? null,
     latencyMs: result.latencyMs || null,
+    reason: result.reason || null,
     detail: result.detail ? result.detail.slice(0, 160) : null,
   };
 

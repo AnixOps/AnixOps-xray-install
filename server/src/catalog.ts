@@ -9,10 +9,15 @@ const PROVIDER_LABELS: Record<string, string> = {
 const REGION_LABELS: Record<string, { city: string; country: string; label: string }> = {
   nrt: { city: "Tokyo", country: "JP", label: "Tokyo" },
   sgp: { city: "Singapore", country: "SG", label: "Singapore" },
+  sin: { city: "Singapore", country: "SG", label: "Singapore" },
   lax: { city: "Los Angeles", country: "US", label: "Los Angeles" },
+  sea: { city: "Seattle", country: "US", label: "Seattle" },
+  fra: { city: "Frankfurt", country: "DE", label: "Frankfurt" },
   "ap-northeast-1": { city: "Tokyo", country: "JP", label: "Tokyo" },
   "ap-southeast-1": { city: "Singapore", country: "SG", label: "Singapore" },
   "us-east-1": { city: "N. Virginia", country: "US", label: "N. Virginia" },
+  "us-west-2": { city: "Oregon", country: "US", label: "Oregon" },
+  "eu-central-1": { city: "Frankfurt", country: "DE", label: "Frankfurt" },
 };
 
 export function getCatalogRuntimeConfig(source: NodeJS.ProcessEnv = process.env) {
@@ -23,33 +28,46 @@ export function getCatalogRuntimeConfig(source: NodeJS.ProcessEnv = process.env)
   return { provider, region, plan };
 }
 
-export function buildCatalogRegions(config = getCatalogRuntimeConfig()) {
-  const regionMeta = REGION_LABELS[config.region] || {
-    city: config.region,
-    country: "",
-    label: config.region,
-  };
-
-  return [{
-    id: config.region,
-    provider: config.provider,
-    providerLabel: PROVIDER_LABELS[config.provider] || config.provider,
-    label: regionMeta.label,
-    city: regionMeta.city,
-    country: regionMeta.country,
-    protocols: ["vless-reality", "hysteria2"] satisfies RentalProtocol[],
-    defaultPlan: config.plan,
-    status: "available",
-    current: true,
-  }];
+export function getCatalogRegionPool(source: NodeJS.ProcessEnv = process.env, fallback = source.VPS_REGION || "nrt") {
+  const fallbackRegion = fallback.trim() || "nrt";
+  const raw = source.VPS_REGION_POOL || source.PROVISION_REGION_POOL || fallbackRegion;
+  const regions = raw
+    .split(",")
+    .map((region) => region.trim())
+    .filter((region) => /^[A-Za-z0-9._-]{1,80}$/.test(region));
+  return [...new Set(regions.length > 0 ? regions : [fallbackRegion])];
 }
 
-export function buildCatalogPlans(config = getCatalogRuntimeConfig()) {
-  return [{
+export function buildCatalogRegions(config = getCatalogRuntimeConfig(), source: NodeJS.ProcessEnv = process.env) {
+  return getCatalogRegionPool(source, config.region).map((region) => {
+    const regionMeta = REGION_LABELS[region] || {
+      city: region,
+      country: "",
+      label: region,
+    };
+
+    return {
+      id: region,
+      provider: config.provider,
+      providerLabel: PROVIDER_LABELS[config.provider] || config.provider,
+      label: regionMeta.label,
+      city: regionMeta.city,
+      country: regionMeta.country,
+      protocols: ["vless-reality", "hysteria2"] satisfies RentalProtocol[],
+      defaultPlan: config.plan,
+      status: "available",
+      current: region === config.region,
+      automatic: true,
+    };
+  });
+}
+
+export function buildCatalogPlans(config = getCatalogRuntimeConfig(), source: NodeJS.ProcessEnv = process.env) {
+  return getCatalogRegionPool(source, config.region).map((region) => ({
     id: config.plan,
     provider: config.provider,
     providerLabel: PROVIDER_LABELS[config.provider] || config.provider,
-    region: config.region,
+    region,
     label: config.plan,
     protocols: ["vless-reality", "hysteria2"] satisfies RentalProtocol[],
     durations: VALID_RENTAL_DURATIONS.map((hours) => ({
@@ -60,6 +78,7 @@ export function buildCatalogPlans(config = getCatalogRuntimeConfig()) {
       currency: "usd",
     })),
     status: "available",
-    current: true,
-  }];
+    current: region === config.region,
+    automatic: true,
+  }));
 }
